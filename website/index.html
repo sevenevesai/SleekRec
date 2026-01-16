@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="SleekRec - Lightweight screen recorder. Click, record, MP4.">
+  <meta name="theme-color" content="#0a0a0a">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" href="icon.png">
+  <meta property="og:title" content="SleekRec">
+  <meta property="og:description" content="Lightweight screen recorder. Click, record, MP4.">
+  <meta property="og:image" content="https://seveneves.ai/sleekrec/icon.png">
+  <meta property="og:type" content="website">
+  <title>SleekRec</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bg: '#0a0a0a',
+            surface: '#121215',
+            border: '#2a2a30',
+            purple: {
+              50: '#f5f0fa',
+              100: '#e8daf2',
+              200: '#d4b8e8',
+              300: '#bb86fc',
+              400: '#a87bc5',
+              500: '#9b6bc8',
+              600: '#7b5a99',
+              700: '#4a3a5c',
+              800: '#2a2235',
+              900: '#1a1520'
+            },
+            text: '#ededed',
+            muted: '#8a8a8a'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #0a0a0a;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0a0a0a; }
+    ::-webkit-scrollbar-thumb { background: #2a2a30; border-radius: 3px; }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+    .icon-float { animation: float 6s ease-in-out infinite; }
+
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 0.6; }
+    }
+    .pulse-glow { animation: pulse-glow 4s ease-in-out infinite; }
+
+    .download-btn {
+      transition: all 0.2s ease;
+    }
+    .download-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px -8px rgba(187, 134, 252, 0.4);
+    }
+  </style>
+</head>
+<body class="min-h-screen text-text overflow-x-hidden">
+
+  <!-- Ambient Background -->
+  <div class="fixed inset-0 pointer-events-none z-0">
+    <div class="absolute top-[-30%] left-[20%] w-[60%] h-[60%] bg-purple-600/8 blur-[150px] rounded-full pulse-glow"></div>
+    <div class="absolute bottom-[-20%] right-[10%] w-[50%] h-[50%] bg-purple-800/6 blur-[120px] rounded-full"></div>
+    <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,#0a0a0a_70%)]"></div>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="relative z-50 w-full px-6 py-6 max-w-5xl mx-auto flex justify-between items-center">
+    <div class="w-8"></div>
+    <a href="https://seveneves.ai" class="text-muted hover:text-text transition-colors flex items-center gap-2 text-sm group">
+      <svg class="w-5 h-5 group-hover:text-purple-300 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+      </svg>
+      <span class="hidden sm:inline">seveneves.ai</span>
+    </a>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="relative z-10 w-full max-w-5xl mx-auto px-6 pt-8 pb-24">
+
+    <!-- Hero -->
+    <div class="text-center mb-20">
+      <!-- Icon -->
+      <div class="icon-float mb-8">
+        <img src="icon.svg" alt="SleekRec" class="w-32 h-32 mx-auto drop-shadow-[0_20px_40px_rgba(187,134,252,0.25)]">
+      </div>
+
+      <!-- Title -->
+      <h1 class="text-4xl md:text-5xl font-semibold tracking-tight mb-4 bg-clip-text text-transparent bg-gradient-to-b from-white via-white to-purple-200/60">
+        SleekRec
+      </h1>
+
+      <!-- Tagline -->
+      <p class="text-lg text-muted mb-3">
+        Screen recorder. Click, record, MP4.
+      </p>
+
+      <!-- Version -->
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-border bg-surface/50 text-xs text-purple-300 font-mono">
+        <span class="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
+        v1.0.0
+      </span>
+    </div>
+
+    <!-- Download Section -->
+    <div class="max-w-2xl mx-auto">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+        <!-- Windows -->
+        <a href="releases/SleekRec-1.0.0-win-x64.exe" class="download-btn flex flex-col items-center p-6 rounded-xl border border-border bg-surface/60 backdrop-blur-sm hover:border-purple-500/50">
+          <svg viewBox="0 0 24 24" fill="currentColor" class="w-8 h-8 mb-3 text-text">
+            <path d="M0 3.449L9.75 2.1v9.451H0V3.449zm10.949-1.672L24 0v11.46H10.949V1.777zM0 12.6h9.75v9.451L0 20.55V12.6zm10.949 0H24v11.46l-13.051-1.848V12.6z"/>
+          </svg>
+          <span class="font-medium mb-1">Windows</span>
+          <span class="text-xs text-muted">x64</span>
+        </a>
+
+        <!-- macOS -->
+        <div class="flex flex-col items-center p-6 rounded-xl border border-border bg-surface/60 backdrop-blur-sm">
+          <svg viewBox="0 0 24 24" fill="currentColor" class="w-8 h-8 mb-3 text-text">
+            <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.21-1.96 1.07-3.11-1.05.05-2.31.74-3.03 1.58-.67.77-1.24 2.02-1.01 3.12 1.17.09 2.35-.75 2.97-1.59z"/>
+          </svg>
+          <span class="font-medium mb-2">macOS</span>
+          <div class="flex gap-2">
+            <a href="releases/SleekRec-1.0.0-mac-arm64.dmg" class="text-xs px-2 py-1 rounded border border-border hover:border-purple-500/50 hover:text-purple-300 transition-colors">ARM64</a>
+            <a href="releases/SleekRec-1.0.0-mac-x64.dmg" class="text-xs px-2 py-1 rounded border border-border hover:border-purple-500/50 hover:text-purple-300 transition-colors">Intel</a>
+          </div>
+        </div>
+
+        <!-- Linux -->
+        <div class="flex flex-col items-center p-6 rounded-xl border border-border bg-surface/60 backdrop-blur-sm">
+          <svg viewBox="0 0 24 24" fill="currentColor" class="w-8 h-8 mb-3 text-text">
+            <path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139z"/>
+          </svg>
+          <span class="font-medium mb-2">Linux</span>
+          <div class="flex gap-2 flex-wrap justify-center">
+            <a href="releases/SleekRec-1.0.0-x64.AppImage" class="text-xs px-2 py-1 rounded border border-border hover:border-purple-500/50 hover:text-purple-300 transition-colors">AppImage</a>
+            <a href="releases/SleekRec-1.0.0-amd64.deb" class="text-xs px-2 py-1 rounded border border-border hover:border-purple-500/50 hover:text-purple-300 transition-colors">.deb</a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Features (minimal) -->
+    <div class="mt-24 max-w-xl mx-auto">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-6 text-center text-sm text-muted">
+        <div>
+          <div class="text-text mb-1">MP4</div>
+          H.264 output
+        </div>
+        <div>
+          <div class="text-text mb-1">Pause</div>
+          Resume anytime
+        </div>
+        <div>
+          <div class="text-text mb-1">Quality</div>
+          4 presets
+        </div>
+        <div>
+          <div class="text-text mb-1">Overlay</div>
+          Always visible
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="relative z-10 w-full border-t border-border py-8 text-center text-sm text-muted">
+    <div class="max-w-5xl mx-auto px-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+      <span>Free for any use</span>
+      <a href="https://seveneves.ai" class="hover:text-text transition-colors">seveneves.ai</a>
+    </div>
+  </footer>
+
+</body>
+</html>

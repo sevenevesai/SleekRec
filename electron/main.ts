@@ -19,8 +19,59 @@ let overlayWin: BrowserWindow | null = null
 let recordingStream: fs.WriteStream | null = null
 let tempFilePath: string | null = null
 
+// Demo mode state
+interface InteractionEvent {
+  type: 'click' | 'focus' | 'idle-start' | 'idle-end'
+  timestamp: number
+  x: number
+  y: number
+  button?: 'left' | 'right' | 'middle'
+  meta?: {
+    zoomLevel?: number
+    duration?: number
+    skip?: boolean
+  }
+}
+
+interface CursorFrame {
+  timestamp: number
+  x: number
+  y: number
+  visible: boolean
+  clicking: boolean
+}
+
+interface DemoModeSettings {
+  clickZoom: {
+    enabled: boolean
+    level: number
+    easeIn: number
+    easeOut: number
+    holdDuration: number
+  }
+  cursor: {
+    hide: boolean
+    overlay: 'none' | 'dot' | 'pointer' | 'custom'
+    smoothing: number
+    clickEffect: 'none' | 'ripple' | 'pulse' | 'highlight'
+    clickEffectSize: number
+    clickEffectColor: string
+  }
+  transitions: {
+    idleThreshold: number
+    idleSpeedup: number
+    fadeOnJump: boolean
+  }
+}
+
+let demoEvents: InteractionEvent[] = []
+let demoCursorFrames: CursorFrame[] = []
+let demoResolution: { width: number; height: number } | null = null
+let demoStartTime: number | null = null
+
 // Settings storage
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
+const demoSettingsPath = path.join(app.getPath('userData'), 'demo-settings.json')
 
 interface AppSettings {
   outputFolder: string
@@ -55,6 +106,54 @@ function saveSettings(settings: Partial<AppSettings>) {
   } catch (e) {
     console.error('Failed to save settings:', e)
     return loadSettings()
+  }
+}
+
+// Demo mode settings
+const defaultDemoSettings: DemoModeSettings = {
+  clickZoom: {
+    enabled: true,
+    level: 1.5,
+    easeIn: 250,
+    easeOut: 300,
+    holdDuration: 400
+  },
+  cursor: {
+    hide: false,
+    overlay: 'pointer',
+    smoothing: 0.5,
+    clickEffect: 'ripple',
+    clickEffectSize: 40,
+    clickEffectColor: '#BB86FC'
+  },
+  transitions: {
+    idleThreshold: 1500,
+    idleSpeedup: 3,
+    fadeOnJump: true
+  }
+}
+
+function loadDemoSettings(): DemoModeSettings {
+  try {
+    if (fs.existsSync(demoSettingsPath)) {
+      const data = fs.readFileSync(demoSettingsPath, 'utf-8')
+      return { ...defaultDemoSettings, ...JSON.parse(data) }
+    }
+  } catch (e) {
+    console.error('Failed to load demo settings:', e)
+  }
+  return defaultDemoSettings
+}
+
+function saveDemoSettings(settings: Partial<DemoModeSettings>) {
+  try {
+    const current = loadDemoSettings()
+    const updated = { ...current, ...settings }
+    fs.writeFileSync(demoSettingsPath, JSON.stringify(updated, null, 2))
+    return updated
+  } catch (e) {
+    console.error('Failed to save demo settings:', e)
+    return loadDemoSettings()
   }
 }
 
@@ -316,3 +415,69 @@ ipcMain.handle('select-output-folder', async () => {
   }
   return null
 });
+
+// --- Demo Mode IPC Handlers ---
+
+ipcMain.on('start-demo-recording', (_event, resolution: { width: number; height: number }) => {
+  demoEvents = []
+  demoCursorFrames = []
+  demoResolution = resolution
+  demoStartTime = Date.now()
+  console.log('[Demo] Started recording with resolution:', resolution)
+})
+
+ipcMain.on('record-event', (_event, event: InteractionEvent) => {
+  if (demoStartTime !== null) {
+    demoEvents.push(event)
+  }
+})
+
+ipcMain.on('record-cursor-frame', (_event, frame: CursorFrame) => {
+  if (demoStartTime !== null) {
+    demoCursorFrames.push(frame)
+  }
+})
+
+ipcMain.handle('stop-demo-recording', async () => {
+  if (demoStartTime === null || !tempFilePath) {
+    return null
+  }
+
+  const demoSettings = loadDemoSettings()
+
+  // Calculate duration
+  const duration = Date.now() - demoStartTime
+
+  // Create session data
+  const session = {
+    video: tempFilePath,
+    events: demoEvents,
+    cursorFrames: demoCursorFrames,
+    duration,
+    resolution: demoResolution || { width: 1920, height: 1080 },
+    settings: demoSettings,
+    createdAt: new Date().toISOString()
+  }
+
+  // Save session.json alongside the temp video
+  const sessionPath = tempFilePath.replace('.webm', '-session.json')
+  fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2))
+
+  console.log(`[Demo] Saved session with ${demoEvents.length} events and ${demoCursorFrames.length} cursor frames`)
+
+  // Reset state
+  demoEvents = []
+  demoCursorFrames = []
+  demoResolution = null
+  demoStartTime = null
+
+  return sessionPath
+})
+
+ipcMain.handle('get-demo-settings', () => {
+  return loadDemoSettings()
+})
+
+ipcMain.handle('save-demo-settings', (_event, settings: Partial<DemoModeSettings>) => {
+  return saveDemoSettings(settings)
+})
