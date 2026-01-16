@@ -339,8 +339,11 @@ function MainApp() {
 
       // Initialize demo recording if enabled (main process handles mouse tracking)
       if (isDemoMode) {
+        console.log('[Demo] Starting demo recording from renderer, resolution:', resolution)
         demoModeActiveRef.current = true
         window.electronAPI.startDemoRecording(resolution)
+      } else {
+        console.log('[Demo] Demo mode is OFF')
       }
 
       const recorder = new MediaRecorder(stream, {
@@ -423,8 +426,10 @@ function MainApp() {
     }
 
     // Save demo session if active (main process handles cleanup)
+    console.log('[Demo] Stop - demoModeActiveRef:', demoModeActiveRef.current)
     if (demoModeActiveRef.current) {
       try {
+        console.log('[Demo] Calling stopDemoRecording...')
         const sessionPath = await window.electronAPI.stopDemoRecording()
         console.log('[Demo] Session saved:', sessionPath)
       } catch (err) {

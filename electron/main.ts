@@ -332,6 +332,7 @@ ipcMain.handle('stop-and-save', async () => {
     let videoFilters: string[] = []
     let isDemo = false
 
+    console.log('[Demo] stop-and-save: checking for session at:', lastDemoSessionPath)
     if (lastDemoSessionPath && fs.existsSync(lastDemoSessionPath)) {
       try {
         const sessionData = JSON.parse(fs.readFileSync(lastDemoSessionPath, 'utf-8'))
