@@ -3,6 +3,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import ffmpeg from 'fluent-ffmpeg'
 import ffmpegPath from 'ffmpeg-static'
+import { uIOhook, UiohookMouseEvent } from 'uiohook-napi'
 
 // Set ffmpeg path - handle both dev and packaged environments
 if (ffmpegPath) {
@@ -68,6 +69,10 @@ let demoEvents: InteractionEvent[] = []
 let demoCursorFrames: CursorFrame[] = []
 let demoResolution: { width: number; height: number } | null = null
 let demoStartTime: number | null = null
+let demoRecordingActive = false
+let cursorSampleInterval: ReturnType<typeof setInterval> | null = null
+let lastMousePos = { x: 0, y: 0 }
+let isMouseDown = false
 
 // Settings storage
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
@@ -423,6 +428,50 @@ ipcMain.on('start-demo-recording', (_event, resolution: { width: number; height:
   demoCursorFrames = []
   demoResolution = resolution
   demoStartTime = Date.now()
+  demoRecordingActive = true
+  lastMousePos = { x: 0, y: 0 }
+  isMouseDown = false
+
+  // Set up global mouse hooks
+  uIOhook.on('mousemove', (e: UiohookMouseEvent) => {
+    lastMousePos = { x: e.x, y: e.y }
+  })
+
+  uIOhook.on('mousedown', (e: UiohookMouseEvent) => {
+    if (!demoRecordingActive || demoStartTime === null) return
+    isMouseDown = true
+    const timestamp = Date.now() - demoStartTime
+    const { width, height } = demoResolution || { width: 1920, height: 1080 }
+    demoEvents.push({
+      type: 'click',
+      timestamp,
+      x: e.x / width,
+      y: e.y / height,
+      button: e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle'
+    })
+  })
+
+  uIOhook.on('mouseup', () => {
+    isMouseDown = false
+  })
+
+  // Start the hook
+  uIOhook.start()
+
+  // Start cursor sampling at 60fps
+  cursorSampleInterval = setInterval(() => {
+    if (!demoRecordingActive || demoStartTime === null) return
+    const timestamp = Date.now() - demoStartTime
+    const { width, height } = demoResolution || { width: 1920, height: 1080 }
+    demoCursorFrames.push({
+      timestamp,
+      x: lastMousePos.x / width,
+      y: lastMousePos.y / height,
+      visible: true,
+      clicking: isMouseDown
+    })
+  }, 16) // ~60fps
+
   console.log('[Demo] Started recording with resolution:', resolution)
 })
 
@@ -441,6 +490,17 @@ ipcMain.on('record-cursor-frame', (_event, frame: CursorFrame) => {
 ipcMain.handle('stop-demo-recording', async () => {
   if (demoStartTime === null || !tempFilePath) {
     return null
+  }
+
+  // Stop global mouse hooks
+  demoRecordingActive = false
+  uIOhook.stop()
+  uIOhook.removeAllListeners()
+
+  // Stop cursor sampling
+  if (cursorSampleInterval) {
+    clearInterval(cursorSampleInterval)
+    cursorSampleInterval = null
   }
 
   const demoSettings = loadDemoSettings()

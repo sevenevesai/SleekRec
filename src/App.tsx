@@ -239,11 +239,6 @@ function MainApp() {
 
   // Demo mode refs
   const demoModeActiveRef = useRef(false)
-  const demoStartTimeRef = useRef<number>(0)
-  const cursorIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const lastMousePosRef = useRef({ x: 0, y: 0 })
-  const isClickingRef = useRef(false)
-  const videoResolutionRef = useRef({ width: 1920, height: 1080 })
 
   useEffect(() => {
     refreshSources()
@@ -275,41 +270,6 @@ function MainApp() {
     }
   }, [])
 
-  // Demo mode: Track mouse position globally
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      lastMousePosRef.current = { x: e.screenX, y: e.screenY }
-    }
-
-    const handleMouseDown = (e: MouseEvent) => {
-      isClickingRef.current = true
-      if (demoModeActiveRef.current && !isPausedRef.current) {
-        const timestamp = Date.now() - demoStartTimeRef.current
-        const { width, height } = videoResolutionRef.current
-        window.electronAPI.recordEvent({
-          type: 'click',
-          timestamp,
-          x: e.screenX / width,
-          y: e.screenY / height,
-          button: e.button === 0 ? 'left' : e.button === 2 ? 'right' : 'middle'
-        })
-      }
-    }
-
-    const handleMouseUp = () => {
-      isClickingRef.current = false
-    }
-
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mousedown', handleMouseDown)
-    window.addEventListener('mouseup', handleMouseUp)
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mousedown', handleMouseDown)
-      window.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [])
 
   const loadSettings = async () => {
     const s = await window.electronAPI.getSettings()
@@ -374,30 +334,13 @@ function MainApp() {
         width: trackSettings.width || 1920,
         height: trackSettings.height || 1080
       }
-      videoResolutionRef.current = resolution
 
       window.electronAPI.startSave()
 
-      // Initialize demo recording if enabled
+      // Initialize demo recording if enabled (main process handles mouse tracking)
       if (isDemoMode) {
         demoModeActiveRef.current = true
-        demoStartTimeRef.current = Date.now()
         window.electronAPI.startDemoRecording(resolution)
-
-        // Start cursor sampling at 60fps (~16.67ms)
-        cursorIntervalRef.current = setInterval(() => {
-          if (!isPausedRef.current && demoModeActiveRef.current) {
-            const timestamp = Date.now() - demoStartTimeRef.current
-            const { x, y } = lastMousePosRef.current
-            window.electronAPI.recordCursorFrame({
-              timestamp,
-              x: x / resolution.width,
-              y: y / resolution.height,
-              visible: true,
-              clicking: isClickingRef.current
-            })
-          }
-        }, 16) // ~60fps
       }
 
       const recorder = new MediaRecorder(stream, {
@@ -479,15 +422,8 @@ function MainApp() {
       clearInterval(intervalRef.current)
     }
 
-    // Stop demo mode cursor sampling
-    if (cursorIntervalRef.current) {
-      clearInterval(cursorIntervalRef.current)
-      cursorIntervalRef.current = null
-    }
-
-    // Save demo session if active
-    const wasDemoMode = demoModeActiveRef.current
-    if (wasDemoMode) {
+    // Save demo session if active (main process handles cleanup)
+    if (demoModeActiveRef.current) {
       try {
         const sessionPath = await window.electronAPI.stopDemoRecording()
         console.log('[Demo] Session saved:', sessionPath)
@@ -495,7 +431,6 @@ function MainApp() {
         console.error('[Demo] Failed to save session:', err)
       }
       demoModeActiveRef.current = false
-      demoStartTimeRef.current = 0
     }
 
     isPausedRef.current = false
