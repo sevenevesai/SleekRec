@@ -1,0 +1,136 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            artifact: SleekRec-Windows
+          - os: macos-latest
+            platform: mac
+            artifact: SleekRec-macOS
+          - os: ubuntu-latest
+            platform: linux
+            artifact: SleekRec-Linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate icons
+        run: npm run icons
+
+      # Linux-specific: Install additional dependencies for electron-builder
+      - name: Install Linux build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+
+      # macOS-specific: Setup for signing (optional, skipped if no certs)
+      - name: Prepare macOS build
+        if: matrix.os == 'macos-latest'
+        run: |
+          # Skip signing for now - can be enabled later with certificates
+          echo "Building unsigned macOS app"
+
+      - name: Build Electron app
+        run: npm run build:${{ matrix.platform }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Disable code signing for CI builds (enable with proper certs later)
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: List build output
+        shell: bash
+        run: |
+          echo "Build output:"
+          ls -la dist_app/
+
+      - name: Upload Windows artifacts
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist_app/*.exe
+            dist_app/*.msi
+          if-no-files-found: warn
+
+      - name: Upload macOS artifacts
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist_app/*.dmg
+            dist_app/*.zip
+          if-no-files-found: warn
+
+      - name: Upload Linux artifacts
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist_app/*.AppImage
+            dist_app/*.deb
+            dist_app/*.rpm
+          if-no-files-found: warn
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find artifacts -type f -name "*"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/SleekRec-Windows/*
+            artifacts/SleekRec-macOS/*
+            artifacts/SleekRec-Linux/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

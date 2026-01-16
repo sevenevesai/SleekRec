@@ -1,18 +1,25 @@
 {
   "name": "sleek-recorder",
   "description": "A sleek, modern window recorder",
-  "author": "User",
+  "author": "SleekRec",
+  "license": "MIT",
   "private": true,
   "version": "1.0.0",
+  "homepage": "https://github.com/yourusername/sleekrec",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
+    "build:win": "tsc && vite build && electron-builder --win",
+    "build:mac": "tsc && vite build && electron-builder --mac",
+    "build:linux": "tsc && vite build && electron-builder --linux",
+    "icons": "node scripts/generate-icons.js",
     "preview": "vite preview"
   },
   "build": {
     "appId": "com.sleek.recorder",
     "productName": "SleekRec",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "dist_app",
       "buildResources": "build"
@@ -22,19 +29,72 @@
       "dist-electron/**/*"
     ],
     "asarUnpack": [
-      "node_modules/ffmpeg-static/ffmpeg.exe"
+      "node_modules/ffmpeg-static/**/*"
     ],
     "win": {
-      "target": "nsis",
-      "icon": "build/icon.png",
-      "forceCodeSigning": false
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "build/icon-512.png",
+      "category": "public.app-category.video",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build",
+      "category": "AudioVideo",
+      "maintainer": "SleekRec"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "SleekRec"
+      "shortcutName": "SleekRec",
+      "uninstallDisplayName": "SleekRec"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "appImage": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     }
   },
   "dependencies": {
@@ -45,6 +105,7 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@types/fluent-ffmpeg": "^2.1.28",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
@@ -53,6 +114,7 @@
     "electron": "^29.1.1",
     "electron-builder": "^24.13.3",
     "postcss": "^8.4.35",
+    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.4.2",
     "vite": "^5.1.6",
