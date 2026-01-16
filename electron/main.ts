@@ -346,7 +346,10 @@ ipcMain.handle('stop-and-save', async () => {
         if (processed.hasEffects) {
           videoFilters = processed.videoFilters
           isDemo = true
-          console.log('[Demo] Applying video filters:', videoFilters)
+          console.log('[Demo] Applying video filters:')
+          for (const filter of videoFilters) {
+            console.log('[Demo] Filter:', filter.substring(0, 200) + (filter.length > 200 ? '...' : ''))
+          }
         }
 
         // Clean up session file

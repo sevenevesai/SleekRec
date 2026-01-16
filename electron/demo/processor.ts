@@ -115,7 +115,12 @@ export function generateZoomKeyframes(
 /**
  * Build FFmpeg zoompan filter expression from keyframes
  *
- * The zoompan filter requires expressions for zoom, x, and y that evaluate per-frame.
+ * The zoompan filter uses these variables:
+ * - 'on' = output frame number
+ * - 'in_time' or we calculate time as on/fps
+ * - 'zoom' = current zoom value (for use in x/y expressions)
+ * - 'iw', 'ih' = input width/height
+ *
  * We use nested if() expressions to handle each keyframe segment.
  */
 export function buildZoompanFilter(
@@ -124,33 +129,34 @@ export function buildZoompanFilter(
   fps: number = 30
 ): string {
   if (keyframes.length === 0) {
-    // No zoom effects, return identity (no zoompan needed)
     return ''
   }
 
   const { width, height } = resolution
 
-  // Build zoom expression
-  const zoomExpr = buildZoomExpression(keyframes)
+  // Build zoom expression using frame number (on) to calculate time
+  const zoomExpr = buildZoomExpression(keyframes, fps)
 
-  // Build x/y pan expressions (center point tracking)
-  const xExpr = buildPanExpression(keyframes, 'x', width)
-  const yExpr = buildPanExpression(keyframes, 'y', height)
+  // Build x/y pan expressions
+  const xExpr = buildPanExpression(keyframes, 'x', width, fps)
+  const yExpr = buildPanExpression(keyframes, 'y', height, fps)
 
-  // zoompan filter: z=zoom, x=pan_x, y=pan_y, d=1 (1 frame per input frame), s=output size, fps=framerate
-  // The filter outputs at the same resolution, zooming "into" the frame
+  // zoompan: d=1 means 1 output frame per input frame, s=output size
   return `zoompan=z='${zoomExpr}':x='${xExpr}':y='${yExpr}':d=1:s=${width}x${height}:fps=${fps}`
 }
 
 /**
  * Build the zoom expression with easing between keyframes
+ * Uses 'on' (output frame number) divided by fps to get time in seconds
  */
-function buildZoomExpression(keyframes: ZoomKeyframe[]): string {
+function buildZoomExpression(keyframes: ZoomKeyframe[], fps: number): string {
   if (keyframes.length === 0) return '1'
   if (keyframes.length === 1) return String(keyframes[0].zoom)
 
-  // Build nested if expressions for each segment
-  // if(between(t,t1,t2), lerp(z1,z2,eased_progress), next_segment)
+  // In zoompan, time is calculated as: on/fps (frame number / framerate)
+  // We'll use 'time' variable which equals on*duration or we compute on/fps
+  // Actually zoompan provides 'in_time' and 'out_time', let's use on/fps
+
   let expr = '1' // default zoom
 
   // Process keyframes in reverse to build nested ifs
@@ -158,77 +164,75 @@ function buildZoomExpression(keyframes: ZoomKeyframe[]): string {
     const k1 = keyframes[i]
     const k2 = keyframes[i + 1]
 
-    // t is time in seconds (provided by zoompan as 'time' or we use on/n*fps)
-    // Progress within segment: (t - t1) / (t2 - t1)
-    const t1 = k1.time.toFixed(3)
-    const t2 = k2.time.toFixed(3)
+    // Convert times to frame numbers for comparison
+    const f1 = Math.round(k1.time * fps)
+    const f2 = Math.round(k2.time * fps)
     const z1 = k1.zoom.toFixed(3)
     const z2 = k2.zoom.toFixed(3)
 
-    // Linear interpolation for now (can add easing later)
-    // lerp: z1 + (z2 - z1) * progress
-    // progress = (t - t1) / (t2 - t1)
-    const segmentExpr = `(${z1}+(${z2}-${z1})*((t-${t1})/(${t2}-${t1})))`
+    // Linear interpolation using frame numbers
+    // progress = (on - f1) / (f2 - f1)
+    const duration = f2 - f1
+    if (duration <= 0) continue
 
-    expr = `if(between(t,${t1},${t2}),${segmentExpr},${expr})`
+    const segmentExpr = `(${z1}+(${z2}-${z1})*((on-${f1})/${duration}))`
+    expr = `if(between(on,${f1},${f2}),${segmentExpr},${expr})`
   }
 
   // Handle before first keyframe (zoom = 1)
-  const firstTime = keyframes[0].time.toFixed(3)
-  expr = `if(lt(t,${firstTime}),1,${expr})`
+  const firstFrame = Math.round(keyframes[0].time * fps)
+  expr = `if(lt(on,${firstFrame}),1,${expr})`
 
   return expr
 }
 
 /**
  * Build pan expression for x or y coordinate
+ * The pan position centers the zoom window on the click point
  */
 function buildPanExpression(
   keyframes: ZoomKeyframe[],
   axis: 'x' | 'y',
-  _size: number
+  _size: number,
+  fps: number
 ): string {
-  if (keyframes.length === 0) return `iw/2` // center
+  if (keyframes.length === 0) return axis === 'x' ? 'iw/2-(iw/zoom)/2' : 'ih/2-(ih/zoom)/2'
 
-  // When zoomed, we need to offset the view to center on the click point
-  // At zoom=1, pan should be 0 (centered)
-  // At zoom>1, pan = (center_point - 0.5) * size * (zoom - 1)
+  const dim = axis === 'x' ? 'iw' : 'ih'
 
-  // The zoompan x/y is the top-left corner of the zoom window
-  // To center on a point (cx, cy) at zoom level z:
-  // x = cx * iw - (iw/z)/2 = cx * iw - iw/(2*z)
-  // Simplified: x = iw * (cx - 1/(2*z))
-
-  let expr = axis === 'x' ? 'iw/2-(iw/zoom)/2' : 'ih/2-(ih/zoom)/2'
+  // Default: center of frame
+  let expr = `${dim}/2-(${dim}/zoom)/2`
 
   // For each keyframe segment, calculate the pan position
   for (let i = keyframes.length - 2; i >= 0; i--) {
     const k1 = keyframes[i]
     const k2 = keyframes[i + 1]
 
-    const t1 = k1.time.toFixed(3)
-    const t2 = k2.time.toFixed(3)
+    const f1 = Math.round(k1.time * fps)
+    const f2 = Math.round(k2.time * fps)
 
     const c1 = axis === 'x' ? k1.centerX : k1.centerY
     const c2 = axis === 'x' ? k2.centerX : k2.centerY
-    const dim = axis === 'x' ? 'iw' : 'ih'
 
-    // Interpolate center position
+    const duration = f2 - f1
+    if (duration <= 0) continue
+
+    // Interpolate center position (0-1 normalized)
     const c1Str = c1.toFixed(4)
     const c2Str = c2.toFixed(4)
-    const centerExpr = `(${c1Str}+(${c2Str}-${c1Str})*((t-${t1})/(${t2}-${t1})))`
+    const centerExpr = `(${c1Str}+(${c2Str}-${c1Str})*((on-${f1})/${duration}))`
 
     // Pan expression: center * dimension - (dimension / zoom) / 2
-    // This centers the zoom window on the interpolated center point
+    // This positions the zoom window so the center point is in the middle
     const panExpr = `(${centerExpr}*${dim}-(${dim}/zoom)/2)`
 
-    expr = `if(between(t,${t1},${t2}),${panExpr},${expr})`
+    expr = `if(between(on,${f1},${f2}),${panExpr},${expr})`
   }
 
-  // Before first keyframe - center
-  const firstTime = keyframes[0].time.toFixed(3)
-  const defaultCenter = axis === 'x' ? 'iw/2-(iw/zoom)/2' : 'ih/2-(ih/zoom)/2'
-  expr = `if(lt(t,${firstTime}),${defaultCenter},${expr})`
+  // Before first keyframe - center of frame
+  const firstFrame = Math.round(keyframes[0].time * fps)
+  const defaultCenter = `${dim}/2-(${dim}/zoom)/2`
+  expr = `if(lt(on,${firstFrame}),${defaultCenter},${expr})`
 
   return expr
 }
@@ -246,9 +250,11 @@ export function processSession(session: RecordingSession): {
   const keyframes = generateZoomKeyframes(session.events, session.settings.clickZoom)
 
   if (keyframes.length > 0) {
-    const zoompanFilter = buildZoompanFilter(keyframes, session.resolution)
-    if (zoompanFilter) {
-      filters.push(zoompanFilter)
+    // Try simplified approach: use scale + overlay instead of zoompan for now
+    // This is more reliable and easier to debug
+    const simpleFilter = buildSimpleZoomFilter(keyframes, session.resolution, 30)
+    if (simpleFilter) {
+      filters.push(simpleFilter)
     }
   }
 
@@ -256,6 +262,53 @@ export function processSession(session: RecordingSession): {
     hasEffects: filters.length > 0,
     videoFilters: filters
   }
+}
+
+/**
+ * Build a simpler zoom filter using zoompan with basic expressions
+ * This is more reliable than complex nested if statements
+ */
+function buildSimpleZoomFilter(
+  keyframes: ZoomKeyframe[],
+  resolution: { width: number; height: number },
+  fps: number
+): string {
+  if (keyframes.length === 0) return ''
+
+  const { width, height } = resolution
+
+  // For simplicity, just pick the first click and zoom on it
+  // This tests that the basic zoompan works before we add complexity
+  const firstClick = keyframes.find(k => k.zoom > 1)
+  if (!firstClick) return ''
+
+  const startFrame = Math.round(firstClick.time * fps)
+  const zoomDuration = 30 // frames for full zoom cycle (~1 second at 30fps)
+
+  // Simple zoom: ramp up then down over ~1 second centered on the click
+  // zoom expression: if we're in the zoom window, interpolate 1 -> 1.5 -> 1
+  const zoomLevel = 1.5
+  const cx = firstClick.centerX.toFixed(4)
+  const cy = firstClick.centerY.toFixed(4)
+
+  // Simple approach: zoom peaks at startFrame + zoomDuration/2
+  // Use linear ramp up then down (triangle wave)
+  const halfDuration = Math.floor(zoomDuration / 2)
+  const peakFrame = startFrame + halfDuration
+  const endFrame = startFrame + zoomDuration
+
+  // Linear ramp: up from startFrame to peakFrame, down from peakFrame to endFrame
+  const zoomExpr = `if(lt(on,${startFrame}),1,` +
+    `if(lt(on,${peakFrame}),1+${(zoomLevel - 1).toFixed(2)}*(on-${startFrame})/${halfDuration},` +
+    `if(lt(on,${endFrame}),1+${(zoomLevel - 1).toFixed(2)}*(${endFrame}-on)/${halfDuration},1)))`
+
+  // Pan to center on click point during zoom
+  const xExpr = `if(between(on,${startFrame},${endFrame}),` +
+    `${cx}*iw-(iw/zoom)/2,iw/2-(iw/zoom)/2)`
+  const yExpr = `if(between(on,${startFrame},${endFrame}),` +
+    `${cy}*ih-(ih/zoom)/2,ih/2-(ih/zoom)/2)`
+
+  return `zoompan=z='${zoomExpr}':x='${xExpr}':y='${yExpr}':d=1:s=${width}x${height}:fps=${fps}`
 }
 
 /**
