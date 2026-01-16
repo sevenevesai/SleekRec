@@ -488,11 +488,20 @@ ipcMain.on('start-demo-recording', (_event, resolution: { width: number; height:
     isMouseDown = true
     const timestamp = Date.now() - demoStartTime
     const { width, height } = demoResolution || { width: 1920, height: 1080 }
+
+    // NOTE: e.x/e.y are SCREEN coordinates, not coordinates within the recorded window
+    // This normalization assumes recording full screen. For window recording,
+    // we'd need to know the window position to calculate relative coordinates.
+    const normX = e.x / width
+    const normY = e.y / height
+
+    console.log(`[Demo] Click at screen(${e.x}, ${e.y}) -> normalized(${normX.toFixed(3)}, ${normY.toFixed(3)}) at ${(timestamp/1000).toFixed(2)}s`)
+
     demoEvents.push({
       type: 'click',
       timestamp,
-      x: e.x / width,
-      y: e.y / height,
+      x: normX,
+      y: normY,
       button: e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle'
     })
   })
