@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import ffmpeg from 'fluent-ffmpeg'
 import ffmpegPath from 'ffmpeg-static'
 import { uIOhook, UiohookMouseEvent } from 'uiohook-napi'
+import { processSession, generateZoomKeyframes, debugKeyframes } from './demo/processor'
 
 // Set ffmpeg path - handle both dev and packaged environments
 if (ffmpegPath) {
@@ -73,6 +74,7 @@ let demoRecordingActive = false
 let cursorSampleInterval: ReturnType<typeof setInterval> | null = null
 let lastMousePos = { x: 0, y: 0 }
 let isMouseDown = false
+let lastDemoSessionPath: string | null = null
 
 // Settings storage
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
@@ -325,9 +327,42 @@ ipcMain.handle('stop-and-save', async () => {
 
     const date = new Date();
     const timestamp = `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}_${date.getHours()}-${date.getMinutes()}-${date.getSeconds()}`;
-    const outputPath = path.join(settings.outputFolder, `Recording_${timestamp}.mp4`);
 
-    ffmpeg(tempFilePath)
+    // Check for demo mode session
+    let videoFilters: string[] = []
+    let isDemo = false
+
+    if (lastDemoSessionPath && fs.existsSync(lastDemoSessionPath)) {
+      try {
+        const sessionData = JSON.parse(fs.readFileSync(lastDemoSessionPath, 'utf-8'))
+        console.log(`[Demo] Processing session with ${sessionData.events.length} events`)
+
+        // Generate zoom keyframes and debug output
+        const keyframes = generateZoomKeyframes(sessionData.events, sessionData.settings.clickZoom)
+        debugKeyframes(keyframes)
+
+        // Process session to get filters
+        const processed = processSession(sessionData)
+        if (processed.hasEffects) {
+          videoFilters = processed.videoFilters
+          isDemo = true
+          console.log('[Demo] Applying video filters:', videoFilters)
+        }
+
+        // Clean up session file
+        fs.unlinkSync(lastDemoSessionPath)
+        lastDemoSessionPath = null
+      } catch (err) {
+        console.error('[Demo] Failed to process session:', err)
+      }
+    }
+
+    const outputPath = path.join(
+      settings.outputFolder,
+      `${isDemo ? 'Demo' : 'Recording'}_${timestamp}.mp4`
+    );
+
+    const command = ffmpeg(tempFilePath)
       .output(outputPath)
       .videoCodec('libx264')
       .outputOptions([
@@ -341,6 +376,13 @@ ipcMain.handle('stop-and-save', async () => {
       .audioCodec('aac')
       .audioChannels(1)
       .audioBitrate(preset.audioBitrate)
+
+    // Apply demo mode video filters if any
+    if (videoFilters.length > 0) {
+      command.videoFilters(videoFilters)
+    }
+
+    command
       .on('end', () => {
         if (tempFilePath) fs.unlinkSync(tempFilePath);
         tempFilePath = null;
@@ -524,6 +566,9 @@ ipcMain.handle('stop-demo-recording', async () => {
   fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2))
 
   console.log(`[Demo] Saved session with ${demoEvents.length} events and ${demoCursorFrames.length} cursor frames`)
+
+  // Store session path for stop-and-save to pick up
+  lastDemoSessionPath = sessionPath
 
   // Reset state
   demoEvents = []
