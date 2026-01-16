@@ -1,0 +1,62 @@
+{
+  "name": "sleek-recorder",
+  "description": "A sleek, modern window recorder",
+  "author": "User",
+  "private": true,
+  "version": "1.0.0",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build && electron-builder",
+    "preview": "vite preview"
+  },
+  "build": {
+    "appId": "com.sleek.recorder",
+    "productName": "SleekRec",
+    "directories": {
+      "output": "dist_app",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/ffmpeg.exe"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png",
+      "forceCodeSigning": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SleekRec"
+    }
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "fix-path": "^4.0.0",
+    "fluent-ffmpeg": "^2.1.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/fluent-ffmpeg": "^2.1.28",
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "^18.2.21",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.18",
+    "electron": "^29.1.1",
+    "electron-builder": "^24.13.3",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.4.2",
+    "vite": "^5.1.6",
+    "vite-plugin-electron": "^0.28.2",
+    "vite-plugin-electron-renderer": "^0.14.5"
+  }
+}

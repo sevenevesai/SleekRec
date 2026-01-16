@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+dist-electron/
+
+# Packaged app (electron-builder output)
+dist_app/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Recordings (if stored in project)
+*.mp4
+*.webm
+recordings/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Vite
+.vite/
+
+# Temporary files
+*.tmp
+*.temp
