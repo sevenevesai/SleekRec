@@ -4,7 +4,7 @@
   "author": "SleekRec",
   "license": "MIT",
   "version": "1.0.0",
-  "homepage": "https://github.com/yourusername/sleekrec",
+  "homepage": "https://github.com/sevenevesai/SleekRec",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
