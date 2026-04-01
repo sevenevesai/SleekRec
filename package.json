@@ -3,13 +3,12 @@
   "description": "A sleek, modern window recorder",
   "author": "SleekRec",
   "license": "MIT",
-  "private": true,
   "version": "1.0.0",
   "homepage": "https://github.com/yourusername/sleekrec",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "postinstall": "electron-rebuild -f -w uiohook-napi",
+    "postinstall": "electron-rebuild",
     "build": "tsc && vite build && electron-builder",
     "build:win": "tsc && vite build && electron-builder --win",
     "build:mac": "tsc && vite build && electron-builder --mac",
@@ -30,8 +29,7 @@
       "dist-electron/**/*"
     ],
     "asarUnpack": [
-      "node_modules/ffmpeg-static/**/*",
-      "node_modules/uiohook-napi/**/*"
+      "node_modules/ffmpeg-static/**/*"
     ],
     "win": {
       "target": [
@@ -116,8 +114,7 @@
     "fix-path": "^4.0.0",
     "fluent-ffmpeg": "^2.1.2",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "uiohook-napi": "^1.5.4"
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.2",

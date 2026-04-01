@@ -3,8 +3,6 @@ import path from 'node:path'
 import fs from 'node:fs'
 import ffmpeg from 'fluent-ffmpeg'
 import ffmpegPath from 'ffmpeg-static'
-import { uIOhook, UiohookMouseEvent } from 'uiohook-napi'
-import { processSession, generateZoomKeyframes, debugKeyframes } from './demo/processor'
 
 // Set ffmpeg path - handle both dev and packaged environments
 if (ffmpegPath) {
@@ -21,64 +19,8 @@ let overlayWin: BrowserWindow | null = null
 let recordingStream: fs.WriteStream | null = null
 let tempFilePath: string | null = null
 
-// Demo mode state
-interface InteractionEvent {
-  type: 'click' | 'focus' | 'idle-start' | 'idle-end'
-  timestamp: number
-  x: number
-  y: number
-  button?: 'left' | 'right' | 'middle'
-  meta?: {
-    zoomLevel?: number
-    duration?: number
-    skip?: boolean
-  }
-}
-
-interface CursorFrame {
-  timestamp: number
-  x: number
-  y: number
-  visible: boolean
-  clicking: boolean
-}
-
-interface DemoModeSettings {
-  clickZoom: {
-    enabled: boolean
-    level: number
-    easeIn: number
-    easeOut: number
-    holdDuration: number
-  }
-  cursor: {
-    hide: boolean
-    overlay: 'none' | 'dot' | 'pointer' | 'custom'
-    smoothing: number
-    clickEffect: 'none' | 'ripple' | 'pulse' | 'highlight'
-    clickEffectSize: number
-    clickEffectColor: string
-  }
-  transitions: {
-    idleThreshold: number
-    idleSpeedup: number
-    fadeOnJump: boolean
-  }
-}
-
-let demoEvents: InteractionEvent[] = []
-let demoCursorFrames: CursorFrame[] = []
-let demoResolution: { width: number; height: number } | null = null
-let demoStartTime: number | null = null
-let demoRecordingActive = false
-let cursorSampleInterval: ReturnType<typeof setInterval> | null = null
-let lastMousePos = { x: 0, y: 0 }
-let isMouseDown = false
-let lastDemoSessionPath: string | null = null
-
 // Settings storage
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
-const demoSettingsPath = path.join(app.getPath('userData'), 'demo-settings.json')
 
 interface AppSettings {
   outputFolder: string
@@ -113,54 +55,6 @@ function saveSettings(settings: Partial<AppSettings>) {
   } catch (e) {
     console.error('Failed to save settings:', e)
     return loadSettings()
-  }
-}
-
-// Demo mode settings
-const defaultDemoSettings: DemoModeSettings = {
-  clickZoom: {
-    enabled: true,
-    level: 1.5,
-    easeIn: 250,
-    easeOut: 300,
-    holdDuration: 400
-  },
-  cursor: {
-    hide: false,
-    overlay: 'pointer',
-    smoothing: 0.5,
-    clickEffect: 'ripple',
-    clickEffectSize: 40,
-    clickEffectColor: '#BB86FC'
-  },
-  transitions: {
-    idleThreshold: 1500,
-    idleSpeedup: 3,
-    fadeOnJump: true
-  }
-}
-
-function loadDemoSettings(): DemoModeSettings {
-  try {
-    if (fs.existsSync(demoSettingsPath)) {
-      const data = fs.readFileSync(demoSettingsPath, 'utf-8')
-      return { ...defaultDemoSettings, ...JSON.parse(data) }
-    }
-  } catch (e) {
-    console.error('Failed to load demo settings:', e)
-  }
-  return defaultDemoSettings
-}
-
-function saveDemoSettings(settings: Partial<DemoModeSettings>) {
-  try {
-    const current = loadDemoSettings()
-    const updated = { ...current, ...settings }
-    fs.writeFileSync(demoSettingsPath, JSON.stringify(updated, null, 2))
-    return updated
-  } catch (e) {
-    console.error('Failed to save demo settings:', e)
-    return loadDemoSettings()
   }
 }
 
@@ -328,45 +222,12 @@ ipcMain.handle('stop-and-save', async () => {
     const date = new Date();
     const timestamp = `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}_${date.getHours()}-${date.getMinutes()}-${date.getSeconds()}`;
 
-    // Check for demo mode session
-    let videoFilters: string[] = []
-    let isDemo = false
-
-    console.log('[Demo] stop-and-save: checking for session at:', lastDemoSessionPath)
-    if (lastDemoSessionPath && fs.existsSync(lastDemoSessionPath)) {
-      try {
-        const sessionData = JSON.parse(fs.readFileSync(lastDemoSessionPath, 'utf-8'))
-        console.log(`[Demo] Processing session with ${sessionData.events.length} events`)
-
-        // Generate zoom keyframes and debug output
-        const keyframes = generateZoomKeyframes(sessionData.events, sessionData.settings.clickZoom)
-        debugKeyframes(keyframes)
-
-        // Process session to get filters
-        const processed = processSession(sessionData)
-        if (processed.hasEffects) {
-          videoFilters = processed.videoFilters
-          isDemo = true
-          console.log('[Demo] Applying video filters:')
-          for (const filter of videoFilters) {
-            console.log('[Demo] Filter:', filter.substring(0, 200) + (filter.length > 200 ? '...' : ''))
-          }
-        }
-
-        // Clean up session file
-        fs.unlinkSync(lastDemoSessionPath)
-        lastDemoSessionPath = null
-      } catch (err) {
-        console.error('[Demo] Failed to process session:', err)
-      }
-    }
-
     const outputPath = path.join(
       settings.outputFolder,
-      `${isDemo ? 'Demo' : 'Recording'}_${timestamp}.mp4`
+      `Recording_${timestamp}.mp4`
     );
 
-    const command = ffmpeg(tempFilePath)
+    ffmpeg(tempFilePath)
       .output(outputPath)
       .videoCodec('libx264')
       .outputOptions([
@@ -380,13 +241,6 @@ ipcMain.handle('stop-and-save', async () => {
       .audioCodec('aac')
       .audioChannels(1)
       .audioBitrate(preset.audioBitrate)
-
-    // Apply demo mode video filters if any
-    if (videoFilters.length > 0) {
-      command.videoFilters(videoFilters)
-    }
-
-    command
       .on('end', () => {
         if (tempFilePath) fs.unlinkSync(tempFilePath);
         tempFilePath = null;
@@ -465,137 +319,4 @@ ipcMain.handle('select-output-folder', async () => {
     return newPath
   }
   return null
-});
-
-// --- Demo Mode IPC Handlers ---
-
-ipcMain.on('start-demo-recording', (_event, resolution: { width: number; height: number }) => {
-  demoEvents = []
-  demoCursorFrames = []
-  demoResolution = resolution
-  demoStartTime = Date.now()
-  demoRecordingActive = true
-  lastMousePos = { x: 0, y: 0 }
-  isMouseDown = false
-
-  // Set up global mouse hooks
-  uIOhook.on('mousemove', (e: UiohookMouseEvent) => {
-    lastMousePos = { x: e.x, y: e.y }
-  })
-
-  uIOhook.on('mousedown', (e: UiohookMouseEvent) => {
-    if (!demoRecordingActive || demoStartTime === null) return
-    isMouseDown = true
-    const timestamp = Date.now() - demoStartTime
-    const { width, height } = demoResolution || { width: 1920, height: 1080 }
-
-    // NOTE: e.x/e.y are SCREEN coordinates, not coordinates within the recorded window
-    // This normalization assumes recording full screen. For window recording,
-    // we'd need to know the window position to calculate relative coordinates.
-    const normX = e.x / width
-    const normY = e.y / height
-
-    console.log(`[Demo] Click at screen(${e.x}, ${e.y}) -> normalized(${normX.toFixed(3)}, ${normY.toFixed(3)}) at ${(timestamp/1000).toFixed(2)}s`)
-
-    demoEvents.push({
-      type: 'click',
-      timestamp,
-      x: normX,
-      y: normY,
-      button: e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle'
-    })
-  })
-
-  uIOhook.on('mouseup', () => {
-    isMouseDown = false
-  })
-
-  // Start the hook
-  uIOhook.start()
-
-  // Start cursor sampling at 60fps
-  cursorSampleInterval = setInterval(() => {
-    if (!demoRecordingActive || demoStartTime === null) return
-    const timestamp = Date.now() - demoStartTime
-    const { width, height } = demoResolution || { width: 1920, height: 1080 }
-    demoCursorFrames.push({
-      timestamp,
-      x: lastMousePos.x / width,
-      y: lastMousePos.y / height,
-      visible: true,
-      clicking: isMouseDown
-    })
-  }, 16) // ~60fps
-
-  console.log('[Demo] Started recording with resolution:', resolution)
-})
-
-ipcMain.on('record-event', (_event, event: InteractionEvent) => {
-  if (demoStartTime !== null) {
-    demoEvents.push(event)
-  }
-})
-
-ipcMain.on('record-cursor-frame', (_event, frame: CursorFrame) => {
-  if (demoStartTime !== null) {
-    demoCursorFrames.push(frame)
-  }
-})
-
-ipcMain.handle('stop-demo-recording', async () => {
-  if (demoStartTime === null || !tempFilePath) {
-    return null
-  }
-
-  // Stop global mouse hooks
-  demoRecordingActive = false
-  uIOhook.stop()
-  uIOhook.removeAllListeners()
-
-  // Stop cursor sampling
-  if (cursorSampleInterval) {
-    clearInterval(cursorSampleInterval)
-    cursorSampleInterval = null
-  }
-
-  const demoSettings = loadDemoSettings()
-
-  // Calculate duration
-  const duration = Date.now() - demoStartTime
-
-  // Create session data
-  const session = {
-    video: tempFilePath,
-    events: demoEvents,
-    cursorFrames: demoCursorFrames,
-    duration,
-    resolution: demoResolution || { width: 1920, height: 1080 },
-    settings: demoSettings,
-    createdAt: new Date().toISOString()
-  }
-
-  // Save session.json alongside the temp video
-  const sessionPath = tempFilePath.replace('.webm', '-session.json')
-  fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2))
-
-  console.log(`[Demo] Saved session with ${demoEvents.length} events and ${demoCursorFrames.length} cursor frames`)
-
-  // Store session path for stop-and-save to pick up
-  lastDemoSessionPath = sessionPath
-
-  // Reset state
-  demoEvents = []
-  demoCursorFrames = []
-  demoResolution = null
-  demoStartTime = null
-
-  return sessionPath
-})
-
-ipcMain.handle('get-demo-settings', () => {
-  return loadDemoSettings()
-})
-
-ipcMain.handle('save-demo-settings', (_event, settings: Partial<DemoModeSettings>) => {
-  return saveDemoSettings(settings)
 })

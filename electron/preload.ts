@@ -31,15 +31,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_event: Electron.IpcRendererEvent, data: { timer: number; isPaused: boolean }) => callback(data)
     ipcRenderer.on('timer-update', handler)
     return () => ipcRenderer.removeListener('timer-update', handler)
-  },
-  // Demo Mode APIs
-  startDemoRecording: (resolution: { width: number; height: number }) =>
-    ipcRenderer.send('start-demo-recording', resolution),
-  recordEvent: (event: { type: string; timestamp: number; x: number; y: number; button?: string; meta?: Record<string, unknown> }) =>
-    ipcRenderer.send('record-event', event),
-  recordCursorFrame: (frame: { timestamp: number; x: number; y: number; visible: boolean; clicking: boolean }) =>
-    ipcRenderer.send('record-cursor-frame', frame),
-  stopDemoRecording: () => ipcRenderer.invoke('stop-demo-recording'),
-  getDemoSettings: () => ipcRenderer.invoke('get-demo-settings'),
-  saveDemoSettings: (settings: Record<string, unknown>) => ipcRenderer.invoke('save-demo-settings', settings)
+  }
 })

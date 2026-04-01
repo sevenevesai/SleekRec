@@ -227,7 +227,6 @@ function MainApp() {
     columnCount: 2
   })
   const [showSettings, setShowSettings] = useState(false)
-  const [isDemoMode, setIsDemoMode] = useState(false)
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -236,9 +235,6 @@ function MainApp() {
   const lastSourcesRef = useRef<string>('')
   const isPausedRef = useRef(false)
   const timerRef = useRef(0)
-
-  // Demo mode refs
-  const demoModeActiveRef = useRef(false)
 
   useEffect(() => {
     refreshSources()
@@ -327,24 +323,7 @@ function MainApp() {
         } as any
       })
 
-      // Get video track settings for resolution
-      const videoTrack = stream.getVideoTracks()[0]
-      const trackSettings = videoTrack.getSettings()
-      const resolution = {
-        width: trackSettings.width || 1920,
-        height: trackSettings.height || 1080
-      }
-
       window.electronAPI.startSave()
-
-      // Initialize demo recording if enabled (main process handles mouse tracking)
-      if (isDemoMode) {
-        console.log('[Demo] Starting demo recording from renderer, resolution:', resolution)
-        demoModeActiveRef.current = true
-        window.electronAPI.startDemoRecording(resolution)
-      } else {
-        console.log('[Demo] Demo mode is OFF')
-      }
 
       const recorder = new MediaRecorder(stream, {
         mimeType: 'video/webm; codecs=vp9',
@@ -423,19 +402,6 @@ function MainApp() {
 
     if (intervalRef.current) {
       clearInterval(intervalRef.current)
-    }
-
-    // Save demo session if active (main process handles cleanup)
-    console.log('[Demo] Stop - demoModeActiveRef:', demoModeActiveRef.current)
-    if (demoModeActiveRef.current) {
-      try {
-        console.log('[Demo] Calling stopDemoRecording...')
-        const sessionPath = await window.electronAPI.stopDemoRecording()
-        console.log('[Demo] Session saved:', sessionPath)
-      } catch (err) {
-        console.error('[Demo] Failed to save session:', err)
-      }
-      demoModeActiveRef.current = false
     }
 
     isPausedRef.current = false
@@ -539,21 +505,6 @@ function MainApp() {
           <p className="text-xs text-gray-500 uppercase tracking-widest mt-1">Select source to record</p>
         </div>
         <div className="flex gap-2 items-center">
-          {/* Demo Mode Toggle */}
-          <button
-            onClick={() => setIsDemoMode(!isDemoMode)}
-            className={`clickable flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg transition-all ${
-              isDemoMode
-                ? 'bg-primary/20 text-primary border border-primary/50'
-                : 'bg-surface text-gray-400 hover:text-white hover:bg-gray-800'
-            }`}
-            title={isDemoMode ? 'Demo mode enabled - click events and cursor will be tracked' : 'Enable demo mode for enhanced recordings'}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
-            </svg>
-            DEMO
-          </button>
           <button
             onClick={() => setShowSettings(true)}
             className="clickable p-2 text-gray-400 hover:text-white hover:bg-surface rounded-lg transition-colors"

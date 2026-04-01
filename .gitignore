@@ -45,3 +45,7 @@ recordings/
 # Temporary files
 *.tmp
 *.temp
+
+# Claude AI context (private dev notes)
+.claude/
+CLAUDE.md
