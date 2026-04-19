@@ -46,6 +46,10 @@ recordings/
 *.tmp
 *.temp
 
+# Archived landing page experiments (do not recommit)
+pixels.html
+pixels.css
+
 # Claude AI context (private dev notes)
 .claude/
 CLAUDE.md
