@@ -33,11 +33,13 @@ interface Window {
     saveSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>
     getQualityPresets: () => Promise<Record<QualityPreset, QualityPresetConfig>>
     selectOutputFolder: () => Promise<string | null>
-    syncTimer: (data: { timer: number; isPaused: boolean }) => void
+    syncTimer: (data: { timer: number; isPaused: boolean; isMicMuted: boolean; hasMic: boolean }) => void
     overlayPause: () => void
     overlayStop: () => void
+    overlayMicToggle: () => void
     onStopRecording: (callback: () => void) => () => void
     onPauseRecording: (callback: () => void) => () => void
-    onTimerUpdate: (callback: (data: { timer: number; isPaused: boolean }) => void) => () => void
+    onMicToggle: (callback: () => void) => () => void
+    onTimerUpdate: (callback: (data: { timer: number; isPaused: boolean; isMicMuted: boolean; hasMic: boolean }) => void) => () => void
   }
 }

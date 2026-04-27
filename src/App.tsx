@@ -10,14 +10,17 @@ type Source = {
 function RecordingOverlay() {
   const [timer, setTimer] = useState(0)
   const [isPaused, setIsPaused] = useState(false)
+  const [isMicMuted, setIsMicMuted] = useState(false)
+  const [hasMic, setHasMic] = useState(false)
 
   useEffect(() => {
-    // Listen for timer updates from main window
-    const cleanup = window.electronAPI.onTimerUpdate((data) => {
+    const cleanupTimer = window.electronAPI.onTimerUpdate((data) => {
       setTimer(data.timer)
       setIsPaused(data.isPaused)
+      setIsMicMuted(data.isMicMuted)
+      setHasMic(data.hasMic)
     })
-    return cleanup
+    return cleanupTimer
   }, [])
 
   const formatTime = (seconds: number) => {
@@ -36,6 +39,10 @@ function RecordingOverlay() {
 
   const handleStop = () => {
     window.electronAPI.overlayStop()
+  }
+
+  const handleMicToggle = () => {
+    window.electronAPI.overlayMicToggle()
   }
 
   return (
@@ -64,6 +71,32 @@ function RecordingOverlay() {
             </svg>
           )}
         </button>
+
+        {/* Mic Mute/Unmute */}
+        {hasMic && (
+          <button
+            onClick={handleMicToggle}
+            className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${
+              isMicMuted
+                ? 'bg-red-500/20 hover:bg-red-500/30'
+                : 'bg-primary/20 hover:bg-primary/30'
+            }`}
+            title={isMicMuted ? 'Unmute mic' : 'Mute mic'}
+          >
+            {isMicMuted ? (
+              <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 10v2a7 7 0 01-14 0v-2" />
+                <line x1="3" y1="3" x2="21" y2="21" strokeLinecap="round" strokeWidth={2} />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" />
+              </svg>
+            )}
+          </button>
+        )}
 
         {/* Stop */}
         <button
@@ -303,10 +336,13 @@ function MainApp() {
   const streamRef = useRef<MediaStream | null>(null)
   const micStreamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
+  const micGainRef = useRef<GainNode | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const sourceRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastSourcesRef = useRef<string>('')
   const isPausedRef = useRef(false)
+  const isMicMutedRef = useRef(false)
+  const micVolumeRef = useRef(0.8)
   const timerRef = useRef(0)
 
   useEffect(() => {
@@ -333,9 +369,13 @@ function MainApp() {
     const cleanupStop = window.electronAPI.onStopRecording(() => {
       handleStopInternal()
     })
+    const cleanupMic = window.electronAPI.onMicToggle(() => {
+      handleMicToggleInternal()
+    })
     return () => {
       cleanupPause()
       cleanupStop()
+      cleanupMic()
     }
   }, [])
 
@@ -418,6 +458,9 @@ function MainApp() {
           const micSource = ctx.createMediaStreamSource(micStream)
           const micGain = ctx.createGain()
           micGain.gain.value = settings.micVolume
+          micGainRef.current = micGain
+          micVolumeRef.current = settings.micVolume
+          isMicMutedRef.current = false
 
           const dest = ctx.createMediaStreamDestination()
           desktopSource.connect(dest)
@@ -470,11 +513,11 @@ function MainApp() {
           setTimer(timerRef.current)
         }
         // Sync timer state to overlay window
-        window.electronAPI.syncTimer({ timer: timerRef.current, isPaused: isPausedRef.current })
+        window.electronAPI.syncTimer({ timer: timerRef.current, isPaused: isPausedRef.current, isMicMuted: isMicMutedRef.current, hasMic: !!micGainRef.current })
       }, 1000)
 
       // Initial sync
-      window.electronAPI.syncTimer({ timer: 0, isPaused: false })
+      window.electronAPI.syncTimer({ timer: 0, isPaused: false, isMicMuted: false, hasMic: !!micGainRef.current })
 
       // Show overlay and minimize main window
       window.electronAPI.showOverlay()
@@ -498,7 +541,19 @@ function MainApp() {
       setIsPaused(true)
     }
     // Immediate sync
-    window.electronAPI.syncTimer({ timer: timerRef.current, isPaused: isPausedRef.current })
+    window.electronAPI.syncTimer({ timer: timerRef.current, isPaused: isPausedRef.current, isMicMuted: isMicMutedRef.current, hasMic: !!micGainRef.current })
+  }, [])
+
+  const handleMicToggleInternal = useCallback(() => {
+    if (!micGainRef.current) return
+    if (isMicMutedRef.current) {
+      micGainRef.current.gain.value = micVolumeRef.current
+      isMicMutedRef.current = false
+    } else {
+      micGainRef.current.gain.value = 0
+      isMicMutedRef.current = true
+    }
+    window.electronAPI.syncTimer({ timer: timerRef.current, isPaused: isPausedRef.current, isMicMuted: isMicMutedRef.current, hasMic: true })
   }, [])
 
   const handleStopInternal = useCallback(async () => {
@@ -522,6 +577,9 @@ function MainApp() {
       audioContextRef.current.close()
       audioContextRef.current = null
     }
+
+    micGainRef.current = null
+    isMicMutedRef.current = false
 
     if (intervalRef.current) {
       clearInterval(intervalRef.current)

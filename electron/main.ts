@@ -114,9 +114,9 @@ function createOverlayWindow() {
   const isMac = process.platform === 'darwin'
 
   overlayWin = new BrowserWindow({
-    width: 280,
+    width: 320,
     height: 70,
-    x: width - 300,
+    x: width - 340,
     y: 20,
     frame: false,
     transparent: true,
@@ -272,7 +272,7 @@ ipcMain.on('hide-overlay', () => {
 });
 
 // Timer sync from main window to overlay
-ipcMain.on('sync-timer', (_event, data: { timer: number; isPaused: boolean }) => {
+ipcMain.on('sync-timer', (_event, data: { timer: number; isPaused: boolean; isMicMuted: boolean; hasMic: boolean }) => {
   if (overlayWin) {
     overlayWin.webContents.send('timer-update', data)
   }
@@ -288,6 +288,12 @@ ipcMain.on('overlay-pause', () => {
 ipcMain.on('overlay-stop', () => {
   if (win) {
     win.webContents.send('stop-recording')
+  }
+});
+
+ipcMain.on('overlay-mic-toggle', () => {
+  if (win) {
+    win.webContents.send('mic-toggle')
   }
 });
 
