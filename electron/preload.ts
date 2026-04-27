@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSources: () => ipcRenderer.invoke('get-sources'),
   startSave: () => ipcRenderer.send('start-save-stream'),
   saveChunk: (chunk: ArrayBuffer) => ipcRenderer.send('save-chunk', chunk),
+  flushChunks: () => ipcRenderer.invoke('flush-chunks'),
   stopSave: () => ipcRenderer.invoke('stop-and-save'),
   minimize: () => ipcRenderer.send('minimize-window'),
   restore: () => ipcRenderer.send('restore-window'),

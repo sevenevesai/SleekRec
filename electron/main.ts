@@ -203,37 +203,55 @@ ipcMain.on('save-chunk', (_event, chunk) => {
   }
 });
 
+ipcMain.handle('flush-chunks', () => {
+  return new Promise<void>((resolve, reject) => {
+    if (recordingStream) {
+      recordingStream.write(Buffer.alloc(0), (err) => {
+        if (err) reject(err)
+        else resolve()
+      })
+    } else {
+      resolve()
+    }
+  })
+});
+
 ipcMain.handle('stop-and-save', async () => {
   closeOverlayWindow()
 
-  return new Promise((resolve, reject) => {
+  // Wait for the write stream to fully flush to disk
+  await new Promise<void>((resolve) => {
     if (recordingStream) {
-      recordingStream.end();
-      recordingStream = null;
+      recordingStream.end(() => {
+        recordingStream = null
+        resolve()
+      })
+    } else {
+      resolve()
     }
+  })
 
-    if (!tempFilePath || !fs.existsSync(tempFilePath)) {
-      reject('No recording found');
-      return;
-    }
+  if (!tempFilePath || !fs.existsSync(tempFilePath)) {
+    throw new Error('No recording found')
+  }
 
-    const settings = loadSettings()
-    const preset = qualityPresets[settings.qualityPreset]
+  const settings = loadSettings()
+  const preset = qualityPresets[settings.qualityPreset]
 
-    // Ensure output directory exists
-    if (!fs.existsSync(settings.outputFolder)) {
-      fs.mkdirSync(settings.outputFolder, { recursive: true });
-    }
+  if (!fs.existsSync(settings.outputFolder)) {
+    fs.mkdirSync(settings.outputFolder, { recursive: true });
+  }
 
-    const date = new Date();
-    const timestamp = `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}_${date.getHours()}-${date.getMinutes()}-${date.getSeconds()}`;
+  const date = new Date();
+  const timestamp = `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}_${date.getHours()}-${date.getMinutes()}-${date.getSeconds()}`;
 
-    const outputPath = path.join(
-      settings.outputFolder,
-      `Recording_${timestamp}.mp4`
-    );
+  const outputPath = path.join(
+    settings.outputFolder,
+    `Recording_${timestamp}.mp4`
+  );
 
-    ffmpeg(tempFilePath)
+  return new Promise((resolve, reject) => {
+    ffmpeg(tempFilePath!)
       .output(outputPath)
       .videoCodec('libx264')
       .outputOptions([

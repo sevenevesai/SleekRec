@@ -486,12 +486,20 @@ function MainApp() {
         videoBitsPerSecond: preset.videoBitrate
       })
 
+      const pendingChunks: Promise<void>[] = []
+
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
-          e.data.arrayBuffer().then(buffer => {
+          const p = e.data.arrayBuffer().then(buffer => {
             window.electronAPI.saveChunk(buffer)
           })
+          pendingChunks.push(p)
         }
+      }
+
+      recorder.onstop = async () => {
+        await Promise.all(pendingChunks)
+        await window.electronAPI.flushChunks()
       }
 
       recorder.start(1000)
@@ -557,11 +565,26 @@ function MainApp() {
   }, [])
 
   const handleStopInternal = useCallback(async () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+    }
+
+    // Wait for MediaRecorder to flush its final chunks
     if (mediaRecorderRef.current) {
-      if (mediaRecorderRef.current.state === 'paused') {
-        mediaRecorderRef.current.resume()
+      const recorder = mediaRecorderRef.current
+      if (recorder.state === 'paused') {
+        recorder.resume()
       }
-      mediaRecorderRef.current.stop()
+      if (recorder.state === 'recording') {
+        await new Promise<void>(resolve => {
+          const origOnStop = recorder.onstop as (() => Promise<void>) | null
+          recorder.onstop = async () => {
+            if (origOnStop) await origOnStop()
+            resolve()
+          }
+          recorder.stop()
+        })
+      }
     }
 
     if (streamRef.current) {
@@ -580,11 +603,6 @@ function MainApp() {
 
     micGainRef.current = null
     isMicMutedRef.current = false
-
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current)
-    }
-
     isPausedRef.current = false
     timerRef.current = 0
 

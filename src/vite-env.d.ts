@@ -24,6 +24,7 @@ interface Window {
     getSources: () => Promise<{id: string, name: string, thumbnail: string}[]>
     startSave: () => void
     saveChunk: (chunk: ArrayBuffer) => void
+    flushChunks: () => Promise<void>
     stopSave: () => Promise<string>
     minimize: () => void
     restore: () => void
