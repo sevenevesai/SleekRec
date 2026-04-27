@@ -6,6 +6,9 @@ interface AppSettings {
   outputFolder: string
   qualityPreset: QualityPreset
   columnCount: number
+  micEnabled: boolean
+  micDeviceId: string | null
+  micVolume: number
 }
 
 interface QualityPresetConfig {

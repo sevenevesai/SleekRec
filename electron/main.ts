@@ -26,12 +26,18 @@ interface AppSettings {
   outputFolder: string
   qualityPreset: 'low' | 'medium' | 'high' | 'ultra'
   columnCount: number
+  micEnabled: boolean
+  micDeviceId: string | null
+  micVolume: number
 }
 
 const defaultSettings: AppSettings = {
   outputFolder: path.join(app.getPath('videos'), 'SleekRecordings'),
   qualityPreset: 'medium',
-  columnCount: 2
+  columnCount: 2,
+  micEnabled: false,
+  micDeviceId: null,
+  micVolume: 0.8
 }
 
 function loadSettings(): AppSettings {

@@ -92,14 +92,28 @@ function SettingsModal({
 }) {
   const [localSettings, setLocalSettings] = useState(settings)
   const [presets, setPresets] = useState<Record<QualityPreset, QualityPresetConfig> | null>(null)
+  const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([])
 
   useEffect(() => {
     setLocalSettings(settings)
   }, [settings])
 
   useEffect(() => {
+    if (!isOpen) return
     window.electronAPI.getQualityPresets().then(setPresets)
-  }, [])
+    refreshMicDevices()
+  }, [isOpen])
+
+  const refreshMicDevices = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach(t => t.stop())
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      setMicDevices(devices.filter(d => d.kind === 'audioinput'))
+    } catch {
+      setMicDevices([])
+    }
+  }
 
   const handleSelectFolder = async () => {
     const folder = await window.electronAPI.selectOutputFolder()
@@ -154,6 +168,60 @@ function SettingsModal({
             <p className="text-xs text-gray-500 mt-2">
               ~{currentPreset.estimateMbPerMin} MB/min &bull; CRF {currentPreset.crf}
             </p>
+          )}
+        </div>
+
+        {/* Microphone */}
+        <div className="mb-6">
+          <label className="block text-sm text-gray-400 mb-2">Microphone</label>
+          <div className="flex items-center gap-3 mb-3">
+            <button
+              onClick={() => setLocalSettings(prev => ({ ...prev, micEnabled: !prev.micEnabled }))}
+              className={`relative w-10 h-6 rounded-full transition-colors ${
+                localSettings.micEnabled ? 'bg-primary' : 'bg-gray-600'
+              }`}
+            >
+              <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                localSettings.micEnabled ? 'left-5' : 'left-1'
+              }`} />
+            </button>
+            <span className="text-sm text-gray-300">
+              {localSettings.micEnabled ? 'Enabled' : 'Disabled'}
+            </span>
+          </div>
+          {localSettings.micEnabled && (
+            <>
+              <select
+                value={localSettings.micDeviceId ?? ''}
+                onChange={e => setLocalSettings(prev => ({
+                  ...prev,
+                  micDeviceId: e.target.value || null
+                }))}
+                className="w-full bg-gray-800 rounded-lg px-3 py-2 text-sm text-gray-300 mb-3 border border-gray-700 focus:border-primary focus:outline-none"
+              >
+                <option value="">Default microphone</option>
+                {micDevices.map(d => (
+                  <option key={d.deviceId} value={d.deviceId}>{d.label}</option>
+                ))}
+              </select>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">
+                  Mic Volume: {Math.round(localSettings.micVolume * 100)}%
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="1.5"
+                  step="0.05"
+                  value={localSettings.micVolume}
+                  onChange={e => setLocalSettings(prev => ({
+                    ...prev,
+                    micVolume: parseFloat(e.target.value)
+                  }))}
+                  className="w-full accent-primary"
+                />
+              </div>
+            </>
           )}
         </div>
 
@@ -224,12 +292,17 @@ function MainApp() {
   const [settings, setSettings] = useState<AppSettings>({
     outputFolder: '',
     qualityPreset: 'medium',
-    columnCount: 2
+    columnCount: 2,
+    micEnabled: false,
+    micDeviceId: null,
+    micVolume: 0.8
   })
   const [showSettings, setShowSettings] = useState(false)
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const micStreamRef = useRef<MediaStream | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const sourceRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastSourcesRef = useRef<string>('')
@@ -304,7 +377,7 @@ function MainApp() {
       const presets = await window.electronAPI.getQualityPresets()
       const preset = presets[settings.qualityPreset]
 
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const desktopStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           mandatory: {
             chromeMediaSource: 'desktop'
@@ -323,9 +396,49 @@ function MainApp() {
         } as any
       })
 
+      let recordingStream: MediaStream
+
+      if (settings.micEnabled) {
+        try {
+          const micConstraints: MediaTrackConstraints = {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          }
+          if (settings.micDeviceId) {
+            micConstraints.deviceId = { exact: settings.micDeviceId }
+          }
+          const micStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints })
+          micStreamRef.current = micStream
+
+          const ctx = new AudioContext()
+          audioContextRef.current = ctx
+
+          const desktopSource = ctx.createMediaStreamSource(desktopStream)
+          const micSource = ctx.createMediaStreamSource(micStream)
+          const micGain = ctx.createGain()
+          micGain.gain.value = settings.micVolume
+
+          const dest = ctx.createMediaStreamDestination()
+          desktopSource.connect(dest)
+          micSource.connect(micGain)
+          micGain.connect(dest)
+
+          recordingStream = new MediaStream([
+            ...desktopStream.getVideoTracks(),
+            ...dest.stream.getAudioTracks()
+          ])
+        } catch (micErr) {
+          console.warn('Mic capture failed, recording without mic:', micErr)
+          recordingStream = desktopStream
+        }
+      } else {
+        recordingStream = desktopStream
+      }
+
       window.electronAPI.startSave()
 
-      const recorder = new MediaRecorder(stream, {
+      const recorder = new MediaRecorder(recordingStream, {
         mimeType: 'video/webm; codecs=vp9',
         videoBitsPerSecond: preset.videoBitrate
       })
@@ -341,7 +454,7 @@ function MainApp() {
       recorder.start(1000)
 
       mediaRecorderRef.current = recorder
-      streamRef.current = stream
+      streamRef.current = desktopStream
       isPausedRef.current = false
       timerRef.current = 0
 
@@ -398,6 +511,16 @@ function MainApp() {
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop())
+    }
+
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(track => track.stop())
+      micStreamRef.current = null
+    }
+
+    if (audioContextRef.current) {
+      audioContextRef.current.close()
+      audioContextRef.current = null
     }
 
     if (intervalRef.current) {
@@ -505,6 +628,28 @@ function MainApp() {
           <p className="text-xs text-gray-500 uppercase tracking-widest mt-1">Select source to record</p>
         </div>
         <div className="flex gap-2 items-center">
+          <button
+            onClick={() => handleSaveSettings({ micEnabled: !settings.micEnabled })}
+            className={`clickable p-2 rounded-lg transition-colors ${
+              settings.micEnabled
+                ? 'text-primary bg-primary/10 hover:bg-primary/20'
+                : 'text-gray-400 hover:text-white hover:bg-surface'
+            }`}
+            title={settings.micEnabled ? 'Microphone on' : 'Microphone off'}
+          >
+            {settings.micEnabled ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" />
+                <line x1="3" y1="3" x2="21" y2="21" strokeLinecap="round" strokeWidth={1.5} />
+              </svg>
+            )}
+          </button>
           <button
             onClick={() => setShowSettings(true)}
             className="clickable p-2 text-gray-400 hover:text-white hover:bg-surface rounded-lg transition-colors"
