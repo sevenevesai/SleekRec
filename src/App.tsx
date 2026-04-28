@@ -126,6 +126,8 @@ function SettingsModal({
   const [localSettings, setLocalSettings] = useState(settings)
   const [presets, setPresets] = useState<Record<QualityPreset, QualityPresetConfig> | null>(null)
   const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([])
+  const [micLevel, setMicLevel] = useState(0)
+  const micMeterRef = useRef<{ stream: MediaStream; ctx: AudioContext; raf: number } | null>(null)
 
   useEffect(() => {
     setLocalSettings(settings)
@@ -135,7 +137,62 @@ function SettingsModal({
     if (!isOpen) return
     window.electronAPI.getQualityPresets().then(setPresets)
     refreshMicDevices()
+
+    const handleDeviceChange = () => { refreshMicDevices() }
+    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange)
+
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange)
+      stopMicMeter()
+    }
   }, [isOpen])
+
+  useEffect(() => {
+    if (isOpen && localSettings.micEnabled && localSettings.micDeviceId !== undefined) {
+      startMicMeter()
+    } else {
+      stopMicMeter()
+    }
+    return () => { stopMicMeter() }
+  }, [isOpen, localSettings.micEnabled, localSettings.micDeviceId])
+
+  const startMicMeter = async () => {
+    stopMicMeter()
+    try {
+      const constraints: MediaTrackConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      if (localSettings.micDeviceId) {
+        constraints.deviceId = { exact: localSettings.micDeviceId }
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints })
+      const ctx = new AudioContext()
+      const source = ctx.createMediaStreamSource(stream)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
+      source.connect(analyser)
+      const dataArray = new Uint8Array(analyser.frequencyBinCount)
+
+      const tick = () => {
+        analyser.getByteFrequencyData(dataArray)
+        let sum = 0
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i]
+        setMicLevel(sum / dataArray.length / 255)
+        micMeterRef.current!.raf = requestAnimationFrame(tick)
+      }
+      micMeterRef.current = { stream, ctx, raf: requestAnimationFrame(tick) }
+    } catch {
+      setMicLevel(0)
+    }
+  }
+
+  const stopMicMeter = () => {
+    if (micMeterRef.current) {
+      cancelAnimationFrame(micMeterRef.current.raf)
+      micMeterRef.current.stream.getTracks().forEach(t => t.stop())
+      micMeterRef.current.ctx.close()
+      micMeterRef.current = null
+    }
+    setMicLevel(0)
+  }
 
   const refreshMicDevices = async () => {
     try {
@@ -237,7 +294,22 @@ function SettingsModal({
                   <option key={d.deviceId} value={d.deviceId}>{d.label}</option>
                 ))}
               </select>
-              <div>
+
+              {/* Level meter */}
+              <div className="mb-3">
+                <label className="block text-xs text-gray-500 mb-1">Input Level</label>
+                <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-75"
+                    style={{
+                      width: `${Math.min(micLevel * 100, 100)}%`,
+                      backgroundColor: micLevel > 0.8 ? '#ef4444' : micLevel > 0.5 ? '#eab308' : '#22c55e'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="mb-3">
                 <label className="block text-xs text-gray-500 mb-1">
                   Mic Volume: {Math.round(localSettings.micVolume * 100)}%
                 </label>
@@ -253,6 +325,24 @@ function SettingsModal({
                   }))}
                   className="w-full accent-primary"
                 />
+              </div>
+
+              {/* Raw input toggle */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setLocalSettings(prev => ({ ...prev, micRawInput: !prev.micRawInput }))}
+                  className={`relative w-10 h-6 rounded-full transition-colors ${
+                    localSettings.micRawInput ? 'bg-primary' : 'bg-gray-600'
+                  }`}
+                >
+                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                    localSettings.micRawInput ? 'left-5' : 'left-1'
+                  }`} />
+                </button>
+                <div>
+                  <span className="text-sm text-gray-300">Raw input</span>
+                  <p className="text-xs text-gray-500">Disable noise suppression &amp; echo cancellation</p>
+                </div>
               </div>
             </>
           )}
@@ -328,7 +418,8 @@ function MainApp() {
     columnCount: 2,
     micEnabled: false,
     micDeviceId: null,
-    micVolume: 0.8
+    micVolume: 0.8,
+    micRawInput: false
   })
   const [showSettings, setShowSettings] = useState(false)
 
@@ -440,10 +531,13 @@ function MainApp() {
 
       if (settings.micEnabled) {
         try {
+          const useRaw = settings.micRawInput
           const micConstraints: MediaTrackConstraints = {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
+            echoCancellation: !useRaw,
+            noiseSuppression: !useRaw,
+            autoGainControl: !useRaw,
+            sampleRate: preset.audioSampleRate,
+            channelCount: preset.audioChannels,
           }
           if (settings.micDeviceId) {
             micConstraints.deviceId = { exact: settings.micDeviceId }
@@ -451,7 +545,7 @@ function MainApp() {
           const micStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints })
           micStreamRef.current = micStream
 
-          const ctx = new AudioContext()
+          const ctx = new AudioContext({ sampleRate: preset.audioSampleRate })
           audioContextRef.current = ctx
 
           const desktopSource = ctx.createMediaStreamSource(desktopStream)

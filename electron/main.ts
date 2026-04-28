@@ -29,6 +29,7 @@ interface AppSettings {
   micEnabled: boolean
   micDeviceId: string | null
   micVolume: number
+  micRawInput: boolean
 }
 
 const defaultSettings: AppSettings = {
@@ -37,7 +38,8 @@ const defaultSettings: AppSettings = {
   columnCount: 2,
   micEnabled: false,
   micDeviceId: null,
-  micVolume: 0.8
+  micVolume: 0.8,
+  micRawInput: false
 }
 
 function loadSettings(): AppSettings {
@@ -173,10 +175,10 @@ app.whenReady().then(() => {
 
 // Quality presets configuration
 const qualityPresets = {
-  low: { crf: 32, preset: 'faster', videoBitrate: 1500000, audioBitrate: '64k', estimateMbPerMin: 3 },
-  medium: { crf: 28, preset: 'medium', videoBitrate: 2500000, audioBitrate: '96k', estimateMbPerMin: 6 },
-  high: { crf: 23, preset: 'medium', videoBitrate: 4000000, audioBitrate: '128k', estimateMbPerMin: 12 },
-  ultra: { crf: 18, preset: 'slow', videoBitrate: 6000000, audioBitrate: '192k', estimateMbPerMin: 20 }
+  low: { crf: 32, preset: 'faster', videoBitrate: 1500000, audioBitrate: '64k', audioChannels: 1, audioSampleRate: 44100, estimateMbPerMin: 3 },
+  medium: { crf: 28, preset: 'medium', videoBitrate: 2500000, audioBitrate: '96k', audioChannels: 1, audioSampleRate: 44100, estimateMbPerMin: 6 },
+  high: { crf: 23, preset: 'medium', videoBitrate: 4000000, audioBitrate: '128k', audioChannels: 2, audioSampleRate: 48000, estimateMbPerMin: 12 },
+  ultra: { crf: 18, preset: 'slow', videoBitrate: 6000000, audioBitrate: '192k', audioChannels: 2, audioSampleRate: 48000, estimateMbPerMin: 20 }
 }
 
 // --- IPC Handlers ---
@@ -263,7 +265,7 @@ ipcMain.handle('stop-and-save', async () => {
         '-movflags +faststart'
       ])
       .audioCodec('aac')
-      .audioChannels(1)
+      .audioChannels(preset.audioChannels)
       .audioBitrate(preset.audioBitrate)
       .on('end', () => {
         if (tempFilePath) fs.unlinkSync(tempFilePath);

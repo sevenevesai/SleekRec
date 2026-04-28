@@ -9,6 +9,7 @@ interface AppSettings {
   micEnabled: boolean
   micDeviceId: string | null
   micVolume: number
+  micRawInput: boolean
 }
 
 interface QualityPresetConfig {
@@ -16,6 +17,8 @@ interface QualityPresetConfig {
   preset: string
   videoBitrate: number
   audioBitrate: string
+  audioChannels: number
+  audioSampleRate: number
   estimateMbPerMin: number
 }
 
