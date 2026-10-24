@@ -71,8 +71,10 @@ process handle. A dead parent must stop capture instead of leaving an orphan fil
 ## Audio
 
 `src/capture-audio.ts` keeps system audio and microphone mixing independent of native video.
-Electron 29 requires desktop loopback to accompany a video track; requesting audio alone can
-terminate its renderer. Request a 16x16, 1 fps companion and never use it as the recorded video.
+Electron 29 through 44 require desktop loopback to accompany a video track: requesting audio
+alone terminates the renderer ("bad IPC message, reason 263", electron#42765, measured on 29.4.6
+and 44.9.3 in [electron-upgrade.md](electron-upgrade.md)). Request a 16x16, 1 fps companion and
+never use it as the recorded video.
 
 An AudioWorklet sends interleaved float PCM and capture times through acknowledged IPC. Map
 worklet sample time to the AudioContext output clock, then package PCM with timestamps in a

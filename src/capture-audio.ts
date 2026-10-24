@@ -30,8 +30,8 @@ export class CaptureAudio {
       if (settings.systemAudio) {
         let system = desktop
         if (!system) {
-          // Electron 29 loopback requires a video track. Discard this 16px/1fps
-          // companion; the native recorder captures the actual video.
+          // Electron 29-44 kill the renderer on audio-only loopback (electron#42765). Discard
+          // this 16px/1fps companion; the native recorder captures the actual video.
           system = await navigator.mediaDevices.getUserMedia({
             audio: { mandatory: { chromeMediaSource: 'desktop' } } as MediaTrackConstraints,
             video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId,
