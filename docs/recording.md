@@ -17,6 +17,10 @@ use that monitor's refresh rate and offer a separate whole-screen action. Never 
 window's capture scope automatically. Sidecars include source ID/name, app version and preset
 so an unexpected engine choice can be traced after recording.
 
+Each source refresh runs `desktopCapturer` and spawns the helper twice, so the picker refreshes on
+mount, on window focus (at most once per 2 s) and from Refresh sources, never on a timer. The
+main window's `backgroundThrottling: false` disables the Page Visibility API; focus is the signal.
+
 The native path currently supports SDR, unrotated displays on the default NVIDIA adapter on
 Windows. Select the screen containing a game. This is desktop capture, not an injected game
 hook: other visible windows are included. Exclusive fullscreen transitions, display changes,

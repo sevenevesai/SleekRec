@@ -588,13 +588,18 @@ function MainApp() {
   useEffect(() => {
     let alive = true
     window.electronAPI.getSettings().then(s => { if (alive) { setSettings(s); setLoaded(true) } }).catch(e => setError(String(e)))
+    let lastRefresh = -Infinity
     const refresh = () => {
       if (operationRef.current || sessionRef.current) return
+      lastRefresh = performance.now()
       window.electronAPI.getSources().then(s => { if (alive) setSources(s) }).catch(e => { if (alive) setError(String(e)) })
     }
+    // Sources load on mount, on demand and on focus, never on a timer: each refresh spawns the
+    // native helper twice. backgroundThrottling: false disables the Page Visibility API, hence focus.
+    const refreshOnFocus = () => { if (performance.now() - lastRefresh >= 2000) refresh() }
     refresh()
-    const interval = setInterval(refresh, 5000)
-    return () => { alive = false; clearInterval(interval) }
+    window.addEventListener('focus', refreshOnFocus)
+    return () => { alive = false; window.removeEventListener('focus', refreshOnFocus) }
   }, [])
   useEffect(() => {
     const listeners = [window.electronAPI.onStopRecording(() => { void handleStop() }),
