@@ -34,7 +34,7 @@ webPreferences (HARDEN) and overlay creation (IDLE).
 
 ## Wave 2, after wave 1 lands
 
-- [ ] 6. Electron 29.4.6 to the current major. Own branch `slim/electron`, worker ELECTRON. Check the desktop-loopback video-companion workaround in `src/capture-audio.ts` against the new version before touching it. Descoped with evidence if the real capture run fails.
+- [x] 6. (landed 651f03b) Electron 29.4.6 to 44.9.3. Own branch `slim/electron`, worker ELECTRON. Check the desktop-loopback video-companion workaround in `src/capture-audio.ts` against the new version before touching it. Descoped with evidence if the real capture run fails.
 
 ## Gates for every landing
 
@@ -57,7 +57,7 @@ workarounds listed in `docs/recording.md`.
 
 ## Decisions pending with the user
 
-None yet.
+Keep or revert item 6: Electron 44 adds about 110 MB unpacked and 36 MB to the installer (table below), so the installer ends 10 MB above the 1.1.2 baseline while the app is on a supported Electron. Revert path: `git revert 651f03b 39b1d33` then `npm ci`. Possible mitigation, untested: exclude `dxcompiler.dll` and `dxil.dll` (about 27 MB, WebGPU only).
 
 ## Pickup notes
 
@@ -75,3 +75,14 @@ at wave 0. Final before/after sizes are measured with `npm run build:win` on mai
 Idle CPU (IDLE worker, packaged, 60 s window): 3.5 to 7.0 CPU-seconds per minute before, 0.05 to
 0.5 after. Working set 60 to 220 MB lower. Gates on the landed tree: tsc clean, 10 of 10 tests,
 `SMOKE PASS` with the vendored FFmpeg.
+
+## Results after wave 2 (tree 651f03b, all seven items)
+
+| Artifact | Baseline bytes | After wave 1 | After wave 2 (Electron 44.9.3) |
+|---|---|---|---|
+| `win-unpacked` | 352,928,280 | 238,826,826 | 349,205,690 |
+| NSIS exe | 99,406,504 | 73,537,033 | 109,488,752 |
+| MSI | 112,771,072 | 84,221,952 | 120,823,808 |
+
+Gates on the landed tree: tsc clean, 10 of 10 tests, `SMOKE PASS` on Electron 44.9.3 with the
+vendored FFmpeg, packaged app boots with a clean console.
