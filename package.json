@@ -99,7 +99,9 @@
       ],
       "icon": "build/icon-512.png",
       "category": "public.app-category.video",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "gatekeeperAssess": false
     },
     "linux": {

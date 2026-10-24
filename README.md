@@ -10,9 +10,9 @@ Screen and window recorder with GPU capture for high-quality Windows recordings.
 **macOS** — ARM64 / Intel DMG
 **Linux** — AppImage / .deb
 
-The Windows setup (.exe) and the Linux AppImage check GitHub Releases at launch, download a newer
-version in the background, and install it when you quit. Update MSI, .deb, and macOS installs by
-downloading the new release: macOS updates need a signed app, and these builds are unsigned.
+The Windows setup (.exe), the Linux AppImage, and Developer ID–signed macOS apps check GitHub
+Releases at launch, download a newer version in the background, and install it when you quit.
+Update MSI, .deb, and unsigned macOS installs by downloading the new release.
 
 ## Features
 
@@ -66,6 +66,23 @@ npm run build:win
 npm run build:mac
 npm run build:linux
 ```
+
+### macOS signing
+
+CI signs the macOS app with a Developer ID and notarizes it when the repository has all five
+Actions secrets below; with none of them it builds an unsigned app, and with only some the macOS
+job fails. Pull request builds stay unsigned.
+
+| Secret | Value |
+|---|---|
+| `MACOS_CERTIFICATE_P12` | Base64 of the exported Developer ID Application certificate and key (`base64 -i cert.p12`) |
+| `MACOS_CERTIFICATE_PASSWORD` | Password set when exporting that `.p12` |
+| `APPLE_API_KEY_P8` | Contents of the App Store Connect API key file (`AuthKey_<id>.p8`) |
+| `APPLE_API_KEY_ID` | That key's ID |
+| `APPLE_API_ISSUER` | The issuer ID shown above the App Store Connect key list |
+
+The in-app updater runs on macOS only when the installed app passes `codesign --verify` against
+the Developer ID requirement, because Squirrel.Mac refuses updates for anything else.
 
 Checks:
 ```
