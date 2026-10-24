@@ -30,6 +30,12 @@ export default defineConfig({
     // Script assets imported with ?url (the AudioWorklet) stay files: the CSP's script-src
     // allows 'self', not data: URLs.
     assetsInlineLimit: file => (file.endsWith('.js') ? false : undefined),
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        overlay: path.resolve(__dirname, 'overlay.html'),
+      },
+    },
   },
   plugins: [
     react(),

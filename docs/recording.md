@@ -21,6 +21,10 @@ Each source refresh runs `desktopCapturer` and spawns the helper twice, so the p
 mount, on window focus (at most once per 2 s) and from Refresh sources, never on a timer. The
 main window's `backgroundThrottling: false` disables the Page Visibility API; focus is the signal.
 
+The 320 px recording overlay is a static page, `overlay.html` with `src/overlay.ts`, without React.
+It reaches the main window only through the `timer-update`, `recording-stats` and `overlay-*`
+channels, so the main window's pause, mic and stop handling (and stop ordering) stays in one place.
+
 The native path currently supports SDR, unrotated displays on the default NVIDIA adapter on
 Windows. Select the screen containing a game. This is desktop capture, not an injected game
 hook: other visible windows are included. Exclusive fullscreen transitions, display changes,

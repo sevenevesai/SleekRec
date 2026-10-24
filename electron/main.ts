@@ -201,9 +201,9 @@ function createOverlayWindow() {
   overlayWin.setContentProtection(true)
 
   if (VITE_DEV_SERVER_URL) {
-    overlayWin.loadURL(`${VITE_DEV_SERVER_URL}#overlay`)
+    overlayWin.loadURL(`${VITE_DEV_SERVER_URL}overlay.html`)
   } else {
-    overlayWin.loadFile(path.join(process.env.DIST || '', 'index.html'), { hash: 'overlay' })
+    overlayWin.loadFile(path.join(process.env.DIST || '', 'overlay.html'))
   }
 
   overlayWin.on('closed', () => {
