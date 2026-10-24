@@ -47,7 +47,7 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['ffmpeg-static'],
+              external: ['ffmpeg-static', 'electron-updater'],
             },
           },
         },

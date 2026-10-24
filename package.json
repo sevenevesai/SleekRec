@@ -145,9 +145,15 @@
     },
     "appImage": {
       "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "sevenevesai",
+      "repo": "SleekRec"
     }
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "ffmpeg-static": "^5.2.0"
   },
   "devDependencies": {

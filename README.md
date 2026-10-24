@@ -10,6 +10,10 @@ Screen and window recorder with GPU capture for high-quality Windows recordings.
 **macOS** — ARM64 / Intel DMG
 **Linux** — AppImage / .deb
 
+The Windows setup (.exe) and the Linux AppImage check GitHub Releases at launch, download a newer
+version in the background, and install it when you quit. Update MSI, .deb, and macOS installs by
+downloading the new release: macOS updates need a signed app, and these builds are unsigned.
+
 ## Features
 
 - Windows/NVIDIA screen recording at source resolution and a selected frame rate up to 240 fps

@@ -5,6 +5,7 @@ import { AppSettings, CaptureInfo, CaptureSource, PCMChunk, qualityPresets } fro
 import { NativeRecorder, listNativeDisplays, locateNativeWindows } from './native-recorder'
 import { BrowserRecorder } from './browser-recorder'
 import { exportRecording } from './export-recording'
+import { updateOnQuit } from './auto-update'
 
 process.env.DIST = path.join(__dirname, '../dist')
 process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : path.join(process.env.DIST, '../public')
@@ -224,6 +225,7 @@ app.on('window-all-closed', () => {
 })
 
 app.whenReady().then(() => {
+  updateOnQuit().catch(error => console.error('Update failed:', error))
   createWindow()
   globalShortcut.register('CommandOrControl+Shift+F9', () => win?.webContents.send('stop-recording'))
   globalShortcut.register('CommandOrControl+Shift+F10', () => win?.webContents.send('pause-recording'))
