@@ -74,6 +74,11 @@ creates duplicate timestamps and stutter. Asynchronous audio resampling corrects
 and a sample-count output timeline keeps AAC timestamps continuous. Preserve silence as samples;
 dropping silence shortens the audio timeline. Native capture encodes AAC while recording.
 
+The renderer's Content-Security-Policy (`index.html`) allows scripts only from `'self'`, and
+worklet modules count as scripts. Load the worklet from a built file URL: `vite.config.ts`
+keeps `.js` assets from being inlined as `data:` URLs, which Vite does by default below 4 KiB.
+A `data:` or `blob:` worklet URL makes `addModule` reject and `startPCM` throw.
+
 Keep `flags=res` in the audio filter. FFmpeg 6.1 otherwise starts without a resampler when input
 and output rates match. Its first drift correction can initialize one with a reset clock,
 insert elapsed-time silence and block capture. The clock-drift regression test detects this.
