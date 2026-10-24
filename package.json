@@ -13,7 +13,6 @@
     "predev": "npm run native",
     "prebuild": "npm run native",
     "dev": "vite",
-    "postinstall": "electron-rebuild",
     "build": "tsc && vite build && electron-builder",
     "build:win": "npm run native && tsc && vite build && electron-builder --win",
     "build:mac": "tsc && vite build && electron-builder --mac",
@@ -136,13 +135,9 @@
     }
   },
   "dependencies": {
-    "ffmpeg-static": "^5.2.0",
-    "fix-path": "^4.0.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "ffmpeg-static": "^5.2.0"
   },
   "devDependencies": {
-    "@electron/rebuild": "^3.7.2",
     "@resvg/resvg-js": "^2.6.2",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
@@ -152,11 +147,12 @@
     "electron-builder": "^24.13.3",
     "esbuild": "^0.21.5",
     "postcss": "^8.4.35",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "sharp": "^0.34.5",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.4.2",
     "vite": "^5.1.6",
-    "vite-plugin-electron": "^0.28.2",
-    "vite-plugin-electron-renderer": "^0.14.5"
+    "vite-plugin-electron": "^0.28.2"
   }
 }
