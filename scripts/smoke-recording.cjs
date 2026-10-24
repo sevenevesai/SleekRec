@@ -16,6 +16,11 @@ if (!process.versions.electron) {
   const directory = path.join(root, '.test-output', `smoke-${Date.now()}`)
   const profile = path.join(directory, 'profile')
   fs.mkdirSync(profile, { recursive: true })
+  // Verify with the same binary the app resolves, as the unit tests do.
+  require('esbuild').buildSync({ entryPoints: [path.join(root, 'electron/ffmpeg.ts')], bundle: true,
+    platform: 'node', format: 'cjs', external: ['ffmpeg-static'], outfile: path.join(directory, 'ffmpeg.cjs') })
+  const { ffmpegBinary } = require(path.join(directory, 'ffmpeg.cjs'))
+  console.log(JSON.stringify({ ffmpeg: ffmpegBinary }))
   app.setPath('userData', profile)
   fs.writeFileSync(path.join(profile, 'settings.json'), JSON.stringify({
     outputFolder: directory, qualityPreset: 'ultra', recordingEngine: 'native', frameRate: 165,
@@ -97,7 +102,7 @@ if (!process.versions.electron) {
     const browser = await stop()
     const { execFileSync } = require('node:child_process')
     for (const file of [native, joined, browser]) {
-      const packets = execFileSync(require('ffmpeg-static'), ['-hide_banner', '-v', 'error', '-i', file,
+      const packets = execFileSync(ffmpegBinary, ['-hide_banner', '-v', 'error', '-i', file,
         '-map', '0', '-c', 'copy', '-f', 'framecrc', '-'], { encoding: 'utf8', windowsHide: true, maxBuffer: 10_000_000 })
       const last = new Map()
       let frames = 0

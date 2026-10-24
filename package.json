@@ -40,10 +40,23 @@
       "en"
     ],
     "win": {
+      "files": [
+        "dist/**/*",
+        "dist-electron/**/*",
+        "!node_modules/ffmpeg-static/**"
+      ],
       "extraResources": [
         {
           "from": "native/bin/windows-displays.exe",
           "to": "windows-displays.exe"
+        },
+        {
+          "from": "vendor/ffmpeg/win32-x64/ffmpeg.exe",
+          "to": "ffmpeg.exe"
+        },
+        {
+          "from": "vendor/ffmpeg/win32-x64/LICENSE.txt",
+          "to": "ffmpeg-LICENSE.txt"
         }
       ],
       "target": [
