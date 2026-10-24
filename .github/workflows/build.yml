@@ -9,7 +9,8 @@ on:
     branches: [main]
 
 env:
-  NODE_VERSION: '20'
+  # electron 44 and @electron/get 5 declare engines node >= 22.12.0
+  NODE_VERSION: '22'
 
 jobs:
   build:

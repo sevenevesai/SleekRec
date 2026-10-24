@@ -450,6 +450,7 @@ ipcMain.handle('get-quality-presets', () => {
 ipcMain.handle('select-output-folder', async () => {
   if (!win) return null
   const result = await dialog.showOpenDialog(win, {
+    defaultPath: loadSettings().outputFolder,
     properties: ['openDirectory'],
     title: 'Select Output Folder'
   })
