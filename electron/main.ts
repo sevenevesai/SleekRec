@@ -130,6 +130,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       backgroundThrottling: false, // Prevent stopping when minimized
     },
     // Modern sleek look - platform-specific title bar
@@ -190,6 +191,7 @@ function createOverlayWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
     }
   })
 
