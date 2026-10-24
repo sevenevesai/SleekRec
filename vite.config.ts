@@ -14,7 +14,7 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['ffmpeg-static', 'fluent-ffmpeg', 'uiohook-napi'],
+              external: ['ffmpeg-static'],
             },
           },
         },
