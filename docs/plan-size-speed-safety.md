@@ -21,9 +21,9 @@ Gates on the left-over tree before any change: `npx tsc --noEmit` clean, `npm te
 
 ## Wave 1, four opus workers in parallel, one branch and worktree each
 
-- [ ] 1. en-US locales only: `electronLanguages` in the electron-builder block. Worker CONFIG, branch `slim/config`.
-- [ ] 2b. CI gates: `npx tsc --noEmit` and `npm test` in `.github/workflows/build.yml` before the build step. Worker CONFIG.
-- [ ] 3. Unused dependencies: drop `fix-path`, the `postinstall` electron-rebuild hook and `@electron/rebuild`, and `vite-plugin-electron-renderer` with its `renderer: {}` option if the build proves it unused. `sharp` and `@resvg/resvg-js` stay devDependencies for `npm run icons`. Worker CONFIG.
+- [x] 1. en-US locales only (landed 3fe6820): `electronLanguages` in the electron-builder block. Worker CONFIG, branch `slim/config`.
+- [x] 2b. CI gates (landed 2df9a0d): `npx tsc --noEmit` and `npm test` in `.github/workflows/build.yml` before the build step. Worker CONFIG.
+- [x] 3. Unused dependencies (landed af4f29a): drop `fix-path`, the `postinstall` electron-rebuild hook and `@electron/rebuild`, and `vite-plugin-electron-renderer` with its `renderer: {}` option if the build proves it unused. `sharp` and `@resvg/resvg-js` stay devDependencies for `npm run icons`. Worker CONFIG.
 - [ ] 7. `sandbox: true` on both BrowserWindows and a Content-Security-Policy in `index.html` that holds in dev and packaged builds. Worker HARDEN, branch `slim/harden`.
 - [ ] 4. Stop idle source polling (refresh on mount, focus and demand); overlay as a small static page keeping the IPC contract and 320 px width. Worker IDLE, branch `slim/idle`.
 - [ ] 5. Trimmed FFmpeg 6.1.1 build with only the components the app and tests use, replacing the 79 MiB binary on Windows. Worker FFMPEG, branch `slim/ffmpeg`. Ships only if `SMOKE PASS` and a real capture run pass.
