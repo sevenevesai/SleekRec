@@ -149,6 +149,18 @@ file-size reduction is content-dependent. Existing destinations are never overwr
 The bundled Windows FFmpeg can exit with status zero after refusing an existing output. The
 runner checks that error text too; otherwise a false success could delete a retained master.
 
+## Bundled FFmpeg
+
+Windows runs a trimmed FFmpeg n6.1.1 from `vendor/ffmpeg/win32-x64/ffmpeg.exe`, packaged as
+`resources/ffmpeg.exe`; `electron/ffmpeg.ts` resolves it, and macOS/Linux keep `ffmpeg-static`.
+Keep the version at 6.1.1: the workarounds in this document describe that version's behaviour,
+and a different version changes capture timing. The recipe, pins and configure line live in
+[scripts/ffmpeg/README.md](../scripts/ffmpeg/README.md). The build holds only the components the
+app and its tests use, so a missing one fails as FFmpeg error text from `runFfmpeg` (for example
+`Unknown encoder` or `No such filter`). Add it to the configure line in
+`scripts/ffmpeg/build-ffmpeg-win.sh`, rebuild, and rerun the gates; do not change capture
+arguments to avoid it.
+
 ## Verification and remaining validation
 
 The [September 2026 investigation](recording-investigation.md) records the supplied stuttering
