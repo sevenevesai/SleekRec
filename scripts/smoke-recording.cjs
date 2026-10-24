@@ -69,7 +69,7 @@ if (!process.versions.electron) {
   ;(async () => {
     await app.whenReady()
     await sleep(1500)
-    main = BrowserWindow.getAllWindows().find(window => !window.webContents.getURL().includes('#overlay'))
+    main = BrowserWindow.getAllWindows().find(window => !window.webContents.getURL().includes('overlay.html'))
     assert.ok(main)
     await start('GPU capture')
     console.log('Native capture + system audio started')
