@@ -26,7 +26,7 @@ Gates on the left-over tree before any change: `npx tsc --noEmit` clean, `npm te
 - [x] 3. Unused dependencies (landed af4f29a): drop `fix-path`, the `postinstall` electron-rebuild hook and `@electron/rebuild`, and `vite-plugin-electron-renderer` with its `renderer: {}` option if the build proves it unused. `sharp` and `@resvg/resvg-js` stay devDependencies for `npm run icons`. Worker CONFIG.
 - [x] 7. (landed c645f4d) `sandbox: true` on both BrowserWindows and a Content-Security-Policy in `index.html` that holds in dev and packaged builds. Worker HARDEN, branch `slim/harden`.
 - [x] 4. (landed 3f47910) Stop idle source polling (refresh on mount, focus and demand); overlay as a small static page keeping the IPC contract and 320 px width. Worker IDLE, branch `slim/idle`.
-- [ ] 5. Trimmed FFmpeg 6.1.1 build with only the components the app and tests use, replacing the 79 MiB binary on Windows. Worker FFMPEG, branch `slim/ffmpeg`. Ships only if `SMOKE PASS` and a real capture run pass.
+- [x] 5. (landed 1a1f4f6, smoke filter b039804) Trimmed FFmpeg 6.1.1 build with only the components the app and tests use, replacing the 79 MiB binary on Windows. Worker FFMPEG, branch `slim/ffmpeg`. Ships only if `SMOKE PASS` and a real capture run pass.
 
 Merge order: CONFIG, HARDEN, IDLE, FFMPEG. Each later branch is rebased onto main after the one
 before it lands. Known touch points: `package.json` (CONFIG, FFMPEG), `electron/main.ts`
@@ -63,3 +63,15 @@ None yet.
 
 Baseline measurements above come from the shipped 1.1.2 artifacts, which match the committed tree
 at wave 0. Final before/after sizes are measured with `npm run build:win` on main after each wave.
+
+## Results after wave 1 (tree b039804, built in the FFMPEG worktree)
+
+| Artifact | Baseline bytes | After wave 1 | Saved |
+|---|---|---|---|
+| `win-unpacked` | 352,928,280 | 238,826,826 | 114,101,454 (32.3%) |
+| NSIS exe | 99,406,504 | 73,537,033 | 25,869,471 (26.0%) |
+| MSI | 112,771,072 | 84,221,952 | 28,549,120 (25.3%) |
+
+Idle CPU (IDLE worker, packaged, 60 s window): 3.5 to 7.0 CPU-seconds per minute before, 0.05 to
+0.5 after. Working set 60 to 220 MB lower. Gates on the landed tree: tsc clean, 10 of 10 tests,
+`SMOKE PASS` with the vendored FFmpeg.
