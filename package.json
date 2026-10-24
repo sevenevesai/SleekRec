@@ -36,6 +36,10 @@
     "asarUnpack": [
       "node_modules/ffmpeg-static/**/*"
     ],
+    "electronLanguages": [
+      "en-US",
+      "en"
+    ],
     "win": {
       "extraResources": [
         {
