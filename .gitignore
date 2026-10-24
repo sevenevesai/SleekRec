@@ -34,6 +34,9 @@ desktop.ini
 # Recordings (if stored in project)
 *.mp4
 *.webm
+*.mkv
+native/bin/
+.test-output/
 recordings/
 
 # TypeScript cache
