@@ -12,7 +12,8 @@ const DEVELOPER_ID_REQUIREMENT =
 // Windows updates run the NSIS setup, which would put a second copy beside an MSI install; only
 // NSIS installs ship this uninstaller. macOS updates go through Squirrel.Mac, which refuses apps
 // without a Developer ID signature, and CI builds unsigned apps when the Apple secrets are absent.
-// Linux updates AppImages.
+// Linux updates AppImages, and .deb installs through dpkg behind a pkexec/sudo prompt: the
+// package-type file electron-builder writes into the .deb selects electron-updater's DebUpdater.
 export async function updateOnQuit(): Promise<void> {
   if (process.platform === 'win32') {
     if (!fs.existsSync(path.join(path.dirname(process.execPath), 'Uninstall SleekRec.exe'))) return
