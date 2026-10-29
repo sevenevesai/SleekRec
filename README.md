@@ -180,6 +180,7 @@ the FFmpeg 6.1 workarounds are in [docs/recording.md](docs/recording.md).
 | [Electron upgrade audit](docs/electron-upgrade.md) | Electron 29 to 44 breaking changes checked against SleekRec, and the loopback-audio probe |
 | [Stutter investigation](docs/recording-investigation.md) | Measured frame gaps in a reported browser recording, and the limits of the validation |
 | [Size, speed and safety plan](docs/plan-size-speed-safety.md) | The completed slimming work and its measured size and idle-CPU results |
+| [Roadmap](docs/roadmap.md) | The ranked next improvements, with the evidence and mechanism for each |
 
 ## Build from source
 
