@@ -15,6 +15,12 @@ LIBVPX_TAG=v1.14.1
 LIBVPX_COMMIT=12f3a2ac603e8f10742105519e0cd03c3b8f71dd
 OPUS_VERSION=1.6.1
 OPUS_SHA256=6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1
+# AMD and Intel GPU capture. The AMF runtime ships in AMD's driver and the oneVPL/MSDK runtime
+# in Intel's; ffmpeg.exe links only these headers and the libvpl dispatcher.
+AMF_VERSION=1.4.36
+AMF_SHA256=ec07ee21b820a73f5bae224e92fd3c492f52732d4885f0637f48189afdd87564
+LIBVPL_TAG=v2.15.0
+LIBVPL_COMMIT=c45b5d786bf7cdabbe49ff1bab78693ad78feb78
 
 die() { echo "build-ffmpeg-win: $*" >&2; exit 1; }
 [ "${MSYSTEM:-}" = MINGW64 ] || die "run inside the MSYS2 MINGW64 environment (MSYSTEM=MINGW64)"
@@ -92,8 +98,48 @@ if ! built "opus-$OPUS_VERSION"; then
   stamp "opus-$OPUS_VERSION"
 fi
 
+if ! built "amf-$AMF_VERSION"; then
+  archive=$src/AMF-headers-v$AMF_VERSION.tar.gz
+  [ -f "$archive" ] || curl -fsSL -o "$archive" \
+    "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v$AMF_VERSION/AMF-headers-v$AMF_VERSION.tar.gz"
+  echo "$AMF_SHA256  $archive" | sha256sum -c --quiet || die "AMF headers checksum mismatch"
+  rm -rf "$src/amf-headers-v$AMF_VERSION" "$prefix/include/AMF"
+  tar -xzf "$archive" -C "$src"
+  mkdir -p "$prefix/include"
+  cp -r "$src/amf-headers-v$AMF_VERSION/AMF" "$prefix/include/AMF"
+  stamp "amf-$AMF_VERSION"
+fi
+
+if ! built "libvpl-$LIBVPL_COMMIT"; then
+  # Intel's dispatcher; it finds the GPU runtime in the installed driver when h264_qsv opens.
+  # The prefix map keeps build paths out of __FILE__ strings, as the in-tree FFmpeg build does.
+  fetch libvpl https://github.com/intel/libvpl.git "+refs/tags/$LIBVPL_TAG:refs/tags/$LIBVPL_TAG" \
+    "$LIBVPL_COMMIT" --depth=1
+  # An undefined _MSC_VER compares as 0 under gcc, so this MSVC-2005 shim redefines wcscpy_s
+  # and breaks mingw-w64 14's stralign.h. Keep the shim for MSVC only.
+  sed -i 's/^#if _MSC_VER < 1400$/#if defined(_MSC_VER) \&\& _MSC_VER < 1400/' \
+    "$src/libvpl/libvpl/src/windows/mfx_dispatcher_defs.h"
+  grep -q '^#if defined(_MSC_VER) && _MSC_VER < 1400$' "$src/libvpl/libvpl/src/windows/mfx_dispatcher_defs.h" \
+    || die "libvpl MSVC shim guard not found"
+  rm -rf "$work/libvpl-build"
+  cmake -S "$src/libvpl" -B "$work/libvpl-build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX="$prefix" -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF \
+    -DBUILD_EXAMPLES=OFF -DINSTALL_EXAMPLES=OFF -DBUILD_TOOLS=OFF -DINSTALL_DEV=ON \
+    -DCMAKE_C_FLAGS="-ffile-prefix-map=$src=." -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$src=."
+  cmake --build "$work/libvpl-build" -j"$jobs"
+  cmake --install "$work/libvpl-build"
+  # The static dispatcher is C++, and FFmpeg links with the C driver: configure's MFXLoad
+  # check fails with undefined __cxa_* and operator new unless vpl.pc names libstdc++.
+  sed -i 's/^Libs: \(.*\)$/Libs: \1 -lstdc++/' "$prefix/lib/pkgconfig/vpl.pc"
+  stamp "libvpl-$LIBVPL_COMMIT"
+fi
+
 fetch ffmpeg https://git.ffmpeg.org/ffmpeg.git "+refs/tags/$FFMPEG_TAG:refs/tags/$FFMPEG_TAG" \
   "$FFMPEG_COMMIT" --depth=1
+# Patches on top of the pin, each explained in its header; fetch restored a pristine tree.
+for patch in "$root"/scripts/ffmpeg/patches/*.patch; do
+  git -C "$src/ffmpeg" apply --whitespace=nowarn "$patch" || die "patch failed: $patch"
+done
 
 # Every component below is used by electron/*.ts, scripts/test-recording.cjs or
 # scripts/smoke-recording.cjs, or is inserted by the ffmpeg CLI for those commands.
@@ -107,16 +153,17 @@ config=(
   --disable-doc --disable-ffplay --disable-ffprobe --disable-network --disable-postproc
   --disable-everything
   --enable-d3d11va --enable-ffnvcodec --enable-nvenc
+  --enable-amf --enable-libvpl --enable-mediafoundation
   --enable-libx264 --enable-libvpx --enable-libopus
   --enable-indev=lavfi
   --enable-protocol=file,pipe
   --enable-demuxer=matroska,mov,concat
-  --enable-muxer=matroska,webm,mp4,mov,null,framecrc,hash,pcm_f32le
+  --enable-muxer=matroska,webm,mp4,mov,null,framecrc,hash,pcm_f32le,segment,rawvideo
   --enable-decoder=h264,hevc,vp8,vp9,opus,aac,ffv1,rawvideo,wrapped_avframe,pcm_s16le,pcm_f32le
-  --enable-encoder=h264_nvenc,hevc_nvenc,libx264,aac,libopus,libvpx_vp9,ffv1,rawvideo,wrapped_avframe,pcm_s16le,pcm_f32le
+  --enable-encoder=h264_nvenc,hevc_nvenc,h264_amf,hevc_amf,h264_qsv,hevc_qsv,h264_mf,hevc_mf,libx264,aac,libopus,libvpx_vp9,ffv1,rawvideo,wrapped_avframe,pcm_s16le,pcm_f32le
   --enable-parser=h264,hevc,aac,opus,vp8,vp9
   --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc,extract_extradata,vp9_superframe,null
-  --enable-filter=ddagrab,color,testsrc,testsrc2,sine,select,settb,setpts,asetpts,aresample,aformat,format,scale,null,anull,trim,atrim
+  --enable-filter=ddagrab,color,testsrc,testsrc2,sine,select,settb,setpts,asetpts,aresample,aformat,format,scale,fps,null,anull,trim,atrim,hwupload,hwdownload,hwmap,vpp_qsv
 )
 (cd "$src/ffmpeg" && ./configure "${config[@]}" && make -j"$jobs" ffmpeg.exe)
 
@@ -125,13 +172,15 @@ cp "$src/ffmpeg/ffmpeg.exe" "$out/ffmpeg.exe"
   echo "FFmpeg $FFMPEG_TAG ($FFMPEG_COMMIT), built by scripts/ffmpeg/build-ffmpeg-win.sh."
   echo "Configure line, sources and versions: scripts/ffmpeg/README.md. FFmpeg with libx264 is"
   echo "distributed under the GNU GPL version 2 or later (below), followed by the notices of the"
-  echo "statically linked libvpx, libopus and nv-codec-headers."
-  for notice in ffmpeg/COPYING.GPLv2 libvpx/LICENSE libvpx/PATENTS "opus-$OPUS_VERSION/COPYING"; do
+  echo "statically linked libvpx, libopus, libvpl, nv-codec-headers and AMF headers."
+  for notice in ffmpeg/COPYING.GPLv2 libvpx/LICENSE libvpx/PATENTS "opus-$OPUS_VERSION/COPYING" libvpl/LICENSE; do
     printf '\n==== %s ====\n\n' "$notice"
     cat "$src/$notice"
   done
   printf '\n==== nv-codec-headers (include/ffnvcodec/nvEncodeAPI.h) ====\n\n'
   sed -n '/Copyright/,/\*\//p' "$src/nv-codec-headers/include/ffnvcodec/nvEncodeAPI.h"
+  printf '\n==== AMF headers (AMF/core/Version.h) ====\n\n'
+  sed -n '/Copyright/,/THE SOFTWARE\.$/p' "$src/amf-headers-v$AMF_VERSION/AMF/core/Version.h"
 } | sed 's/\r$//' > "$out/LICENSE.txt"
 
 sha256sum "$out/ffmpeg.exe"

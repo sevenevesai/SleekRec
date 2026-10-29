@@ -1,2 +1,4 @@
 # MSYS2 bash rejects CRLF scripts; Windows checkouts default to CRLF here.
 *.sh text eol=lf
+# git apply matches patch context byte for byte against FFmpeg's LF sources.
+*.patch text eol=lf

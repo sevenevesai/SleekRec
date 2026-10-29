@@ -1,0 +1,18 @@
+QSV can only map fixed-size D3D11 frame pools ("Only fixed-size pools can be mapped to QSV
+frames"), and ddagrab allocates a dynamic pool. Honor the generic extra_hw_frames filter
+option by fixing the pool at 8 plus that many frames, so Intel capture can run
+ddagrab=...:extra_hw_frames=N,hwmap=derive_device=qsv without a CPU copy. Without the
+option (the default -1) the pool stays dynamic, so NVENC, AMF and Media Foundation capture
+are unchanged.
+
+--- a/libavfilter/vsrc_ddagrab.c
++++ b/libavfilter/vsrc_ddagrab.c
+@@ -771,6 +771,8 @@ static av_cold int init_hwframes_ctx(AVFilterContext *avctx)
+     dda->frames_ctx->format    = AV_PIX_FMT_D3D11;
+     dda->frames_ctx->width     = dda->width;
+     dda->frames_ctx->height    = dda->height;
++    if (avctx->extra_hw_frames > 0)
++        dda->frames_ctx->initial_pool_size = 8 + avctx->extra_hw_frames;
+
+     switch (dda->raw_format) {
+     case DXGI_FORMAT_B8G8R8A8_UNORM:

@@ -1,7 +1,7 @@
 FFmpeg n6.1.1 (e38092ef9395d7049f871ef4d5411eb410e283e0), built by scripts/ffmpeg/build-ffmpeg-win.sh.
 Configure line, sources and versions: scripts/ffmpeg/README.md. FFmpeg with libx264 is
 distributed under the GNU GPL version 2 or later (below), followed by the notices of the
-statically linked libvpx, libopus and nv-codec-headers.
+statically linked libvpx, libopus, libvpl, nv-codec-headers and AMF headers.
 
 ==== ffmpeg/COPYING.GPLv2 ====
 
@@ -452,6 +452,30 @@ https://datatracker.ietf.org/ipr/1914/
 Broadcom Corporation:
 https://datatracker.ietf.org/ipr/1526/
 
+==== libvpl/LICENSE ====
+
+MIT License
+
+Copyright (c) 2020 Intel Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 ==== nv-codec-headers (include/ffnvcodec/nvEncodeAPI.h) ====
 
  * Copyright (c) 2010-2023 NVIDIA Corporation
@@ -477,3 +501,25 @@ https://datatracker.ietf.org/ipr/1526/
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
  * OTHER DEALINGS IN THE SOFTWARE.
  */
+
+==== AMF headers (AMF/core/Version.h) ====
+
+// Copyright (c) 2017 Advanced Micro Devices, Inc. All rights reserved.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
