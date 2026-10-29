@@ -204,7 +204,8 @@ the FFmpeg 6.1 workarounds are in [docs/recording.md](docs/recording.md).
 
 | Guide | Covers |
 |---|---|
-| [Recording engines](docs/recording.md) | Engine selection, GPU adapters and encoders, areas, audio tracks, stop ordering, MP4 finalize, pause and recovery, tests and remaining validation |
+| [Recording engines](docs/recording.md) | Engine selection, audio tracks, stop ordering, MP4 finalize, pause and recovery, tests and remaining validation |
+| [GPU capture](docs/gpu-capture.md) | Adapter selection, NVENC/AMF/Quick Sync/Media Foundation encoding, areas and window areas |
 | [Instant replay](docs/instant-replay.md) | The segment ring, saving, disk bounds and its interplay with recording |
 | [Recordings, trim and export](docs/library-and-editing.md) | The recordings panel, thumbnails, recovery, trim, fit-to-size and export |
 | [Hotkeys, tray and startup](docs/hotkeys-and-tray.md) | Global hotkeys, the remembered source, toasts, the tray and launch options |

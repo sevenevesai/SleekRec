@@ -42,6 +42,10 @@ export async function finalizeCapture(parts: string[], base: string, options: Fi
       parts.map(file => `file '${path.basename(file)}'`).join('\n') + '\n')
   }
   const input = manifest ? ['-f', 'concat', '-safe', '1', '-i', manifest] : ['-i', parts[0]]
+  // fs.rename replaces an existing file on Windows; a finished recording is never replaced.
+  const claim = async (file: string) => {
+    if (await fs.access(file).then(() => true, () => false)) throw new Error(`${file} already exists`)
+  }
   const removeParts = async () => {
     // Delete only this session's inputs, and only after the output exists and verified.
     for (const file of parts) await fs.unlink(file)
@@ -84,6 +88,7 @@ export async function finalizeCapture(parts: string[], base: string, options: Fi
         if (Math.abs(probe.seconds - options.expectedSeconds) > tolerance) {
           throw new Error(`duration ${probe.seconds.toFixed(1)} s, expected ${options.expectedSeconds.toFixed(1)} s`)
         }
+        await claim(`${base}.mp4`)
         await fs.rename(partial, `${base}.mp4`)
         await removeParts()
         return { path: `${base}.mp4` }
@@ -98,6 +103,7 @@ export async function finalizeCapture(parts: string[], base: string, options: Fi
     await runFfmpeg(['-n', ...input, '-map', '0', '-c', 'copy', output])
     await removeParts()
   } else {
+    await claim(output)
     await fs.rename(parts[0], output)
     await fs.rmdir(folder)
   }

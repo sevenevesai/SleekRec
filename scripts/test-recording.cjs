@@ -335,7 +335,7 @@ test('three PCM tracks in one live Matroska stream become three titled AAC track
 
 async function captureParts(name, count, seconds = 1) {
   const folder = path.join(output, name)
-  await fs.rm(folder, { recursive: true, force: true })
+  for (const leftover of [folder, `${folder}.mp4`, `${folder}.mkv`]) await fs.rm(leftover, { recursive: true, force: true })
   await fs.mkdir(folder, { recursive: true })
   const parts = []
   for (let i = 1; i <= count; i++) {
@@ -373,6 +373,12 @@ test('an MP4 that does not verify leaves the joined MKV master and says why', as
   const ultra = await captureParts('finalize-ultra', 1)
   const kept = await finalizeCapture(ultra.parts, ultra.folder, { mp4: false, hevc: false, audioTracks: ['Game'], expectedFrames: 60, expectedSeconds: 1 })
   assert.equal(kept.path, `${ultra.folder}.mkv`, 'Ultra keeps its Matroska master')
+  const clash = await captureParts('finalize-clash', 1)
+  await fs.writeFile(`${clash.folder}.mkv`, 'an earlier recording')
+  await assert.rejects(finalizeCapture(clash.parts, clash.folder, { mp4: false, hevc: false, audioTracks: ['Game'],
+    expectedFrames: 60, expectedSeconds: 1 }), /already exists/)
+  assert.equal(await fs.readFile(`${clash.folder}.mkv`, 'utf8'), 'an earlier recording', 'an existing file is never replaced')
+  assert.ok((await fs.stat(clash.parts[0])).size > 0, 'and the parts stay')
 })
 
 // ---- Library, recovery, trim and fit-to-size ----

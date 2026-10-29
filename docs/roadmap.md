@@ -22,8 +22,8 @@ whatever hardware the person has, then a file they can drop into Discord or an e
 | 10 | macOS and Linux verified, then a native macOS engine | Shipping unverified platforms | Open |
 
 Items 2-9 shipped together on 2026-10-29. Their designs live where they are maintained:
-[recording.md](recording.md) (GPU adapters and encoders, regions and window areas, separate
-tracks, MP4 finalize), [instant-replay.md](instant-replay.md),
+[gpu-capture.md](gpu-capture.md) (adapters, encoders, areas), [recording.md](recording.md)
+(separate tracks, MP4 finalize), [instant-replay.md](instant-replay.md),
 [library-and-editing.md](library-and-editing.md) (panel, trim, export, fit-to-size, recovery) and
 [hotkeys-and-tray.md](hotkeys-and-tray.md). The two small fixes, a sticky header and a GPU
 capability line on the picker, shipped with them.
