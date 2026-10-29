@@ -63,6 +63,7 @@ declare global {
       onMicToggle: (callback: () => void) => () => void
       onHotkeyRecord: (callback: () => void) => () => void
       onHotkeyReplayToggle: (callback: () => void) => () => void
+      onReplayOff: (callback: () => void) => () => void
       onTimerUpdate: (callback: (data: TimerState) => void) => () => void
       onRecordingStats: (callback: (stats: RecordingStats) => void) => () => void
       onRecordingError: (callback: (message: string) => void) => () => void

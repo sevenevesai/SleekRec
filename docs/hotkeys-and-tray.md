@@ -49,6 +49,8 @@ replay arm/disarm.
 - **Start minimized to the tray** creates the window hidden; launches with `--hidden` (the login
   item) do the same.
 - **Keep running in the tray when the window closes** hides instead of closing; quit from the
-  tray. A recording or job still blocks close and stops first, as before.
+  tray. A recording or job still blocks close and stops first, as before. Without it, closing the
+  main window quits even though the hidden toast window exists (`window-all-closed` would never
+  fire), turning instant replay off first.
 - **Start SleekRec when you sign in** sets the login item with `--hidden`, only in packaged builds
   (a development build would register electron.exe).

@@ -379,6 +379,13 @@ test('an MP4 that does not verify leaves the joined MKV master and says why', as
     expectedFrames: 60, expectedSeconds: 1 }), /already exists/)
   assert.equal(await fs.readFile(`${clash.folder}.mkv`, 'utf8'), 'an earlier recording', 'an existing file is never replaced')
   assert.ok((await fs.stat(clash.parts[0])).size > 0, 'and the parts stay')
+  const broken = await captureParts('finalize-broken', 2)
+  await fs.writeFile(broken.parts[1], 'not a Matroska file')
+  await assert.rejects(finalizeCapture(broken.parts, broken.folder, { mp4: false, hevc: false, audioTracks: ['Game'],
+    expectedFrames: 120, expectedSeconds: 2 }))
+  await assert.rejects(fs.stat(`${broken.folder}.mkv`), /ENOENT/, 'a failed join leaves no truncated recording')
+  await assert.rejects(fs.stat(`${broken.folder}.partial.mkv`), /ENOENT/)
+  assert.ok((await fs.stat(broken.parts[0])).size > 0, 'and keeps the parts for recovery')
 })
 
 // ---- Library, recovery, trim and fit-to-size ----
@@ -411,10 +418,18 @@ test('the library lists recordings by kind, refuses paths outside the output fol
   assert.throws(() => libraryPath(folder, path.join(folder, 'Recording_2026-10-29T10-00-00-000Z_aaaa1111')), /not a recording/,
     'Folders only where the action allows them')
   const sessionFolder = path.dirname(parts[0])
+  const cancelled = new AbortController()
+  cancelled.abort()
+  await assert.rejects(recoverUnfinished(sessionFolder, cancelled.signal), /Cancelled/)
+  assert.ok(!(await fs.readdir(folder)).some(name => name.includes('_recovered')), 'a cancelled recovery leaves no file')
   const recovered = await recoverUnfinished(libraryPath(folder, sessionFolder, { folder: true }))
   assert.match(recovered.path, /_recovered\.mkv$/)
   assert.ok(Math.abs((await probeMedia(recovered.path)).seconds - 2) < 0.1)
   assert.equal((await fs.readdir(sessionFolder)).filter(name => name.endsWith('.mkv')).length, 2, 'recovery keeps the parts')
+  const leftover = await captureParts(path.join('library', 'Recording_2026-10-29T13-00-00-000Z_dddd4444'), 1)
+  await fs.copyFile(leftover.parts[0], `${leftover.folder}.mkv`)
+  const listed = (await listLibrary(folder)).find(entry => entry.path === leftover.folder)
+  assert.equal(listed.savedAs, 'Recording_2026-10-29T13-00-00-000Z_dddd4444.mkv', 'parts that outlived a save are leftovers, not a recording to recover')
   assert.equal(await uniqueOutput(clip, '_trim', '.mp4'), clip.replace('.mp4', '_trim.mp4'))
   await fs.writeFile(clip.replace('.mp4', '_trim.mp4'), '')
   assert.equal(await uniqueOutput(clip, '_trim', '.mp4'), clip.replace('.mp4', '_trim-2.mp4'))

@@ -22,12 +22,16 @@ interface Segment {
   pins: number
 }
 
-/** Deletes replay buffers left by a crash. Only this app's own buffer directory is touched. */
-export async function removeStaleReplayBuffers(outputFolder: string, keep?: string): Promise<void> {
+/**
+ * Deletes replay buffers left by a crash or a failed stop. Only this app's own buffer directory
+ * is touched, and only while no buffer is running or stopping: a live one may be mid-save.
+ */
+export async function removeStaleReplayBuffers(outputFolder: string): Promise<void> {
   const root = path.join(outputFolder, REPLAY_DIRECTORY)
   const entries = await fs.readdir(root).catch(() => [] as string[])
   for (const entry of entries) {
-    if (path.join(root, entry) !== keep) await fs.rm(path.join(root, entry), { recursive: true, force: true })
+    // A file still locked by a dying FFmpeg goes next time; it is not worth failing an arm over.
+    await fs.rm(path.join(root, entry), { recursive: true, force: true }).catch(() => {})
   }
 }
 
@@ -63,8 +67,7 @@ export class ReplayBuffer {
 
   async start(): Promise<void> {
     await fs.mkdir(this.folder, { recursive: true })
-    await removeStaleReplayBuffers(this.settings.outputFolder, this.folder)
-    this.capture = await CaptureProcess.start({ target: this.target, settings: this.settings,
+    const capture = await CaptureProcess.start({ target: this.target, settings: this.settings,
       fps: this.info.targetFps, launcher: this.launcher, pacing: new FramePacingMeter(),
       // One-second GOPs let a segment close within about a second of its target length.
       gopSeconds: 1,
@@ -74,6 +77,15 @@ export class ReplayBuffer {
       onProgress: () => {},
       onUnexpectedExit: error => this.onError(error ? error.message : 'Instant replay stopped unexpectedly.'),
     })
+    if (this.stopping) {
+      // Turned off (or the renderer died) while FFmpeg was starting: stop it instead of orphaning it.
+      await capture.stop().catch(() => {}) // Its failure no longer matters to anyone.
+      // stop() may have removed the folder before FFmpeg created a segment; anything left is
+      // removed by the stale-buffer cleanup at the next arm or launch.
+      await fs.rm(this.folder, { recursive: true, force: true }).catch(() => {})
+      throw new Error('Instant replay was turned off while starting')
+    }
+    this.capture = capture
     this.poll = setInterval(() => { void this.readList() }, 500)
   }
 
@@ -210,7 +222,8 @@ export class ReplayBuffer {
         await this.readList()
         clearInterval(this.poll)
         await Promise.allSettled([...this.saves])
-        await fs.rm(this.folder, { recursive: true, force: true })
+        await fs.rm(this.folder, { recursive: true, force: true }).catch(error =>
+          this.onError(`The replay buffer could not be deleted (${String(error)}); SleekRec removes it next time.`))
       })()
     }
     return this.stopping

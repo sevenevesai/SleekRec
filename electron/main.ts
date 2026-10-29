@@ -36,6 +36,8 @@ let tray: AppTray | null = null
 let nativeRecorder: NativeRecorder | null = null
 let browserRecorder: BrowserRecorder | null = null
 let replayBuffer: ReplayBuffer | null = null
+/** Buffers finishing their stop still receive PCM: FFmpeg must handle q before its input closes. */
+const stoppingReplays = new Set<ReplayBuffer>()
 let recordingBusy = false
 let recordingPaused = false
 let job: { id: string; controller: AbortController } | null = null
@@ -205,13 +207,25 @@ function createWindow(show: boolean) {
     } else if (!quitting && loadSettings().closeToTray) {
       event.preventDefault()
       win?.hide()
+    } else if (!quitting && (replayBuffer || stoppingReplays.size)) {
+      // Quit while the renderer is alive, so replay's PCM keeps flowing until FFmpeg exits.
+      event.preventDefault()
+      app.quit()
     }
   })
+  // The hidden toast and frame windows would keep window-all-closed from firing: closing the main
+  // window (when it does not hide to the tray) quits.
+  win.on('closed', () => {
+    win = null
+    app.quit()
+  })
   win.webContents.on('render-process-gone', () => {
-    void Promise.allSettled([nativeRecorder?.abort(), browserRecorder?.abort(), replayBuffer?.stop()]).finally(() => {
-      replayBuffer = null
-      stopReplayDiskWatch?.()
+    const buffer = replayBuffer
+    replayBuffer = null
+    stopReplayDiskWatch?.()
+    void Promise.allSettled([nativeRecorder?.abort(), browserRecorder?.abort(), buffer?.stop()]).finally(() => {
       releaseRecording()
+      updateTray()
     })
   })
 }
@@ -431,11 +445,31 @@ app.on('before-quit', event => {
     event.preventDefault()
     quitAfterSave = true
     if (recordingBusy) send('stop-recording')
-  } else if (replayBuffer) {
+  } else if (replayBuffer || stoppingReplays.size) {
     event.preventDefault()
-    void disarmReplay().finally(() => app.quit())
+    void quitAfterReplay()
   }
 })
+
+let replayQuit: Promise<void> | undefined
+/**
+ * Turns replay off before quitting. The renderer does it when it is alive, so PCM keeps flowing
+ * until FFmpeg handles q; without a renderer, main stops the buffer itself.
+ */
+function quitAfterReplay(): Promise<void> {
+  if (!replayQuit) {
+    replayQuit = (async () => {
+      if (win && !win.webContents.isDestroyed()) {
+        send('replay-off')
+        const deadline = Date.now() + 15000
+        while ((replayBuffer || stoppingReplays.size) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      await disarmReplay()
+      await Promise.allSettled([...stoppingReplays].map(buffer => buffer.stop()))
+    })().finally(() => app.quit())
+  }
+  return replayQuit
+}
 app.on('will-quit', () => {
   releaseHotkeys()
   tray?.destroy()
@@ -535,24 +569,29 @@ function describeSource(info: CaptureInfo, source: CaptureSource, settings: AppS
 
 ipcMain.handle('prepare-native', async (_event, sourceId: unknown, options: unknown) => {
   claimRecording()
+  // Local reference: renderer death can release the session (nativeRecorder = null) mid-start,
+  // and this handler must still abort the recorder it created.
+  let recorder: NativeRecorder | undefined
   try {
     const settings = loadSettings()
     const { target, source } = await resolveTarget(sourceRef(sourceId, options), settings)
     stopRecordingDiskWatch = await watchDisk(settings.outputFolder, message => send('recording-error', message))
-    nativeRecorder = new NativeRecorder(target, settings,
+    recorder = new NativeRecorder(target, settings,
       stats => {
         send('recording-stats', stats)
         overlayWin?.webContents.send('recording-stats', stats)
       }, message => send('recording-error', message), displayHelper,
       fraction => send('finalize-progress', fraction))
-    describeSource(nativeRecorder.info, source, settings)
-    await nativeRecorder.startSegment()
+    nativeRecorder = recorder
+    describeSource(recorder.info, source, settings)
+    await recorder.startSegment()
+    if (nativeRecorder !== recorder) throw new Error('The recording window closed while GPU capture was starting')
     showRegionFrame(target)
     updateTray()
-    return { id: nativeRecorder.id, info: nativeRecorder.info }
+    return { id: recorder.id, info: recorder.info }
   } catch (error) {
-    await nativeRecorder?.abort()
-    releaseRecording()
+    await recorder?.abort()
+    if (!nativeRecorder || nativeRecorder === recorder) releaseRecording()
     throw error
   }
 })
@@ -588,31 +627,38 @@ ipcMain.handle('native-stop', async (_event, id: string) => {
   } finally { releaseRecording() }
 })
 
+let replayArming = false
 ipcMain.handle('replay-arm', async (_event, sourceId: unknown, options: unknown) => {
-  if (replayBuffer) throw new Error('Instant replay is already on')
+  if (replayBuffer || replayArming) throw new Error('Instant replay is already on')
   if (recordingBusy || job) throw new Error('Finish the current recording or export first')
-  const settings = loadSettings()
-  const { target, source } = await resolveTarget(sourceRef(sourceId, options), settings)
-  const buffer = new ReplayBuffer(target, settings, seconds => send('replay-status', seconds),
-    message => send('replay-error', message), displayHelper)
-  describeSource(buffer.info, source, settings)
-  replayBuffer = buffer
+  replayArming = true
   try {
-    stopReplayDiskWatch = await watchDisk(settings.outputFolder, message => {
-      send('replay-error', message)
-      void disarmReplay()
-    })
-    await buffer.start()
-  } catch (error) {
-    await disarmReplay()
-    throw error
+    // A buffer still stopping may be finishing a save from its folder; let it end first. With
+    // none alive, leftovers from a crash or a failed delete are safe to remove.
+    await Promise.allSettled([...stoppingReplays].map(stopping => stopping.stop()))
+    const settings = loadSettings()
+    await removeStaleReplayBuffers(settings.outputFolder)
+    const { target, source } = await resolveTarget(sourceRef(sourceId, options), settings)
+    const buffer = new ReplayBuffer(target, settings, seconds => send('replay-status', seconds),
+      message => send('replay-error', message), displayHelper)
+    describeSource(buffer.info, source, settings)
+    replayBuffer = buffer
+    try {
+      stopReplayDiskWatch = await watchDisk(settings.outputFolder, message => {
+        send('replay-error', message)
+        void disarmReplay()
+      })
+      await buffer.start()
+    } catch (error) {
+      await disarmReplay(buffer.id)
+      throw error
+    }
+    updateTray()
+    return { id: buffer.id, info: buffer.info }
+  } finally {
+    replayArming = false
   }
-  updateTray()
-  return { id: buffer.id, info: buffer.info }
 })
-
-/** Buffers finishing their stop still receive PCM: FFmpeg must handle q before its input closes. */
-const stoppingReplays = new Set<ReplayBuffer>()
 
 async function disarmReplay(id?: string): Promise<void> {
   const buffer = replayBuffer
@@ -624,7 +670,12 @@ async function disarmReplay(id?: string): Promise<void> {
   stoppingReplays.add(buffer)
   try { await buffer.stop() } finally { stoppingReplays.delete(buffer) }
 }
-ipcMain.handle('replay-disarm', (_event, id: string) => disarmReplay(id))
+// Main may already be stopping this buffer (low disk). The renderer must still wait for FFmpeg to
+// exit before it stops sending PCM, so a stopping buffer is awaited too.
+ipcMain.handle('replay-disarm', async (_event, id: string) => {
+  if (replayBuffer?.id === id) return disarmReplay(id)
+  await [...stoppingReplays].find(buffer => buffer.id === id)?.stop()
+})
 
 const formatClock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}`
 
@@ -840,7 +891,7 @@ ipcMain.handle('trim-recording', async (_event, file: unknown, start: number, en
 
 ipcMain.handle('recover-recording', async (_event, file: unknown) => {
   const input = libraryPath(outputFolder(), file, { folder: true })
-  const result = await runJob('Recovering…', () => recoverUnfinished(input))
+  const result = await runJob('Recovering…', options => recoverUnfinished(input, options.signal))
   const info = await probeMedia(result.path)
   Object.assign(result.info, { width: info.video?.width ?? 0, height: info.video?.height ?? 0, codec: info.video?.codec ?? 'unknown' })
   result.stats = { frames: 0, fps: info.video?.fps ?? 0, seconds: info.seconds, bytes: fs.statSync(result.path).size, speed: 1 }

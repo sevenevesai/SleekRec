@@ -178,6 +178,8 @@ export interface LibraryEntry {
   warning?: string
   /** Unfinished native sessions: the number of Matroska parts on disk. */
   parts?: number
+  /** Unfinished folder whose recording was saved but whose parts could not be deleted. */
+  savedAs?: string
 }
 
 export interface MediaDetails {

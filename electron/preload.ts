@@ -67,6 +67,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMicToggle: (callback: () => void) => listen('mic-toggle', callback),
   onHotkeyRecord: (callback: () => void) => listen('hotkey-record', callback),
   onHotkeyReplayToggle: (callback: () => void) => listen('hotkey-replay-toggle', callback),
+  onReplayOff: (callback: () => void) => listen('replay-off', callback),
   onTimerUpdate: (callback: (data: TimerState) => void) => listen('timer-update', callback),
   onRecordingStats: (callback: (stats: RecordingStats) => void) => listen('recording-stats', callback),
   onRecordingError: (callback: (message: string) => void) => listen('recording-error', callback),

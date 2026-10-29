@@ -92,6 +92,13 @@ Otherwise the parts are joined into `<session>.mkv` and the sidecar and saved ba
 reason. The MP4 also falls back when free space is below the parts' size plus 512 MB. Ultra keeps
 its MKV: 4:4:4 in MP4 plays no better. Finalize progress reaches the UI as `finalize-progress`.
 
+The MKV join writes through `<session>.partial.mkv` and is verified too: the concat demuxer skips
+a part it cannot open and still exits 0, so a join whose log reports an unreadable part, or that
+holds under 90% of the recorded time, fails and keeps the parts for Recover. Without room for a
+copy, a multi-part session is not joined at all (a single part is renamed). No step replaces an
+existing file. Once the output exists, a failure to delete the parts is a warning, not a failed
+save; the panel lists that folder as leftover parts of the saved file.
+
 A metadata probe (`electron/media-probe.ts`) reads the header to report duration; a JSON sidecar
 records resolution, target rate, encoder, encoded frames, average rate and file size.
 `electron/frame-pacing.ts` summarizes mux packet timestamps using a bounded histogram; native
@@ -99,8 +106,10 @@ telemetry shares stdout with FFmpeg progress. Record p95/max intervals and count
 Reset the previous timestamp at segment boundaries so pauses are not counted as capture stalls.
 Native save does not scan/decode the completed recording to collect these metrics.
 
-Pause finishes a part. Resume opens a new part with the frozen session settings; a part whose
-FFmpeg never started is skipped at stop. Keep PCM flowing until FFmpeg exits; closing the input
+Pause finishes a part. Resume opens a new part with the frozen session settings. A part whose
+FFmpeg never encoded a frame is skipped at stop; a last segment that failed (a resume into
+exclusive fullscreen, a device loss) still saves the earlier parts, with a warning. A session
+closed while FFmpeg is starting (renderer death) stops that FFmpeg instead of orphaning it. Keep PCM flowing until FFmpeg exits; closing the input
 before it handles `q` can hang finalization. Forced termination after a timeout keeps the
 partial files, and the recordings panel offers to recover them
 ([library-and-editing.md](library-and-editing.md)). MKV's periodic clusters improve

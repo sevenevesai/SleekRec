@@ -116,7 +116,7 @@ function RecordingCard({ entry, highlighted, busy, onTrim, onError, onExport, on
       disabled={unfinished} onClick={() => act('open')} title={unfinished ? undefined : 'Play'}>
       {details?.thumbnail ? <img src={details.thumbnail} alt="" className="w-full h-full object-cover" />
         : <div className={`w-full h-full ${failed || unfinished ? '' : 'animate-pulse bg-gray-800/60'} flex items-center justify-center text-xs text-gray-500`}>
-          {unfinished ? `${entry.parts ? `${entry.parts} part${entry.parts > 1 ? 's' : ''} · ` : ''}not finalized` : failed ? 'No preview' : ''}</div>}
+          {entry.savedAs ? 'Leftover capture parts' : unfinished ? `${entry.parts ? `${entry.parts} part${entry.parts > 1 ? 's' : ''} · ` : ''}not finalized` : failed ? 'No preview' : ''}</div>}
       {kindLabels[entry.kind] && <span className={`absolute top-2 left-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${
         entry.kind === 'replay' ? 'bg-secondary/15 text-secondary' : unfinished ? 'bg-yellow-500/15 text-yellow-300' : 'bg-black/60 text-gray-200'}`}>{kindLabels[entry.kind]}</span>}
       {!!seconds && <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-xs tabular-nums text-white">{formatSeconds(seconds)}</span>}
@@ -132,9 +132,10 @@ function RecordingCard({ entry, highlighted, busy, onTrim, onError, onExport, on
       {!!entry.gapsOver100ms && <p className="text-xs text-yellow-300/90">{entry.gapsOver100ms} frame gaps over 100 ms</p>}
       {(entry.audioTracks?.length ?? 0) > 1 && <p className="text-xs text-gray-500">{entry.audioTracks!.length} audio tracks</p>}
       {entry.warning && <p className="text-xs text-yellow-300/90">{entry.warning}</p>}
+      {entry.savedAs && <p className="text-xs text-gray-400">Saved as {entry.savedAs}; these parts could not be deleted then and are safe to delete.</p>}
       <div className="flex items-center gap-0.5 pt-1 -ml-2">
         {unfinished
-          ? <button className={actionStyle} disabled={busy} onClick={() => onRecover(entry)} title="Join the parts into a playable MKV; the parts go to the recycle bin">Recover</button>
+          ? !entry.savedAs && <button className={actionStyle} disabled={busy} onClick={() => onRecover(entry)} title="Join the parts into a playable MKV; the parts go to the recycle bin">Recover</button>
           : <>
             <button className={actionStyle} onClick={() => act('open')}>Play</button>
             <button className={actionStyle} disabled={busy} onClick={() => onTrim(entry, details)}>Trim</button>

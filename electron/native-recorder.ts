@@ -299,6 +299,8 @@ export class NativeRecorder {
   private lastStats?: RecordingStats
   private stopPromise?: Promise<SavedRecording>
   private pacing = new FramePacingMeter()
+  /** Encoded frames per part; a part whose FFmpeg never encoded (a failed resume) is not joined. */
+  private partFrames = new Map<string, () => number>()
 
   constructor(private target: CaptureTarget, private settings: AppSettings,
     private onStats: (stats: RecordingStats) => void, private onError: (message: string) => void,
@@ -316,7 +318,7 @@ export class NativeRecorder {
     let lastFrames = 0
     let lastTime = performance.now()
     this.parts.push(file)
-    this.capture = await CaptureProcess.start({ target: this.target, settings: this.settings,
+    const capture = await CaptureProcess.start({ target: this.target, settings: this.settings,
       fps: this.info.targetFps, launcher: this.launcher, pacing: this.pacing,
       output: ['-max_interleave_delta', '1000000', '-cluster_time_limit', '1000', '-flush_packets', '1', '-f', 'matroska', file],
       onProgress: progress => {
@@ -336,6 +338,13 @@ export class NativeRecorder {
         ? `${error.message}\nRecording parts: ${this.folder}`
         : 'GPU capture ended unexpectedly. The recording parts have been kept.'),
     })
+    this.capture = capture
+    this.partFrames.set(file, () => capture.stats.frames)
+    // An abort (renderer death) can land while FFmpeg is starting; it must not outlive the session.
+    if (this.closed) {
+      await this.pause().catch(() => {}) // The session is being abandoned; its error was already reported.
+      throw new Error('The recording session ended while GPU capture was starting')
+    }
   }
 
   waitUntilReady(): Promise<void> {
@@ -351,11 +360,11 @@ export class NativeRecorder {
     const active = this.capture
     if (!active) return Promise.resolve()
     if (!this.stopSegment) {
-      this.stopSegment = active.stop().then(() => {
+      // A segment that failed mid-way still holds footage up to its last cluster; count it too.
+      this.stopSegment = active.stop().finally(() => {
         this.completedFrames += active.stats.frames
         this.completedSeconds += active.stats.seconds
         this.completedBytes += active.stats.bytes
-      }).finally(() => {
         this.capture = undefined
         this.stopSegment = undefined
       })
@@ -370,10 +379,11 @@ export class NativeRecorder {
 
   private async finish(): Promise<SavedRecording> {
     this.closed = true
-    await this.pause()
-    // A segment whose FFmpeg never started (a failed resume) leaves no file to join.
-    const parts = (await Promise.all(this.parts.map(file => fs.stat(file).then(stat => stat.size > 0 ? file : '', () => ''))))
-      .filter(Boolean)
+    // A failed last segment (a resume into exclusive fullscreen, a device loss) must not lose the
+    // footage before it: keep every part that encoded frames and say what happened.
+    const stopError = await this.pause().then(() => undefined, (error: unknown) => error)
+    const parts = this.parts.filter(file => (this.partFrames.get(file)?.() ?? 0) > 0)
+    if (!parts.length) throw stopError ?? new Error('No recording was captured')
     const finalized = await finalizeCapture(parts, this.folder, {
       mp4: this.settings.qualityPreset !== 'ultra', hevc: this.settings.nativeCodec === 'hevc',
       audioTracks: this.info.audioTracks ?? [], expectedFrames: this.pacing.snapshot().frames,
@@ -385,9 +395,11 @@ export class NativeRecorder {
         fps: this.completedFrames / Math.max(probe.seconds, 0.001), bytes: (await fs.stat(output)).size,
         pacing: this.pacing.snapshot() }
     }
+    const warnings = [stopError && `The last segment ended with an error, so the recording ends there: ${String(stopError).split('\n')[0].slice(0, 200)}`,
+      finalized.warning].filter((text): text is string => !!text)
     const result: SavedRecording = { path: output, info: this.info, stats: this.lastStats,
-      ...(finalized.warning ? { warning: finalized.warning } : {}) }
-    await fs.writeFile(`${output}.json`, JSON.stringify(result, null, 2)).catch(() => {})
+      ...(warnings.length ? { warning: warnings.join(' ') } : {}) }
+    await fs.writeFile(`${output}.json`, JSON.stringify(result, null, 2)).catch(() => {}) // Sidecar loss only costs panel details.
     return result
   }
 

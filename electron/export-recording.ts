@@ -62,9 +62,12 @@ export const partialPath = (output: string): string => output.replace(/(\.[^.\\/
 
 const exists = (file: string) => fs.access(file).then(() => true, () => false)
 
-async function writeNew(output: string, write: (partial: string) => Promise<unknown>): Promise<void> {
+/** Writes through `.partial` and renames only on success; refuses an existing destination. */
+export async function writeNew(output: string, write: (partial: string) => Promise<unknown>): Promise<void> {
   if (await exists(output)) throw new Error(`${output} already exists`)
   const partial = partialPath(output)
+  // A stale partial is this function's own output from a crash; -n would otherwise refuse it.
+  await fs.unlink(partial).catch(() => {})
   try {
     await write(partial)
     if (await exists(output)) throw new Error(`${output} already exists`)

@@ -36,9 +36,15 @@ capture. Windows suppresses notifications during fullscreen games, so replay doe
 - Disk: replay length plus the margin, times the bitrate; the 512 MB free-space floor disarms
   replay with a visible error.
 - Turning replay off stops FFmpeg with `q` while PCM still flows, waits for pending saves, then
-  deletes the session folder. Main keeps routing audio to a stopping buffer until FFmpeg exits.
-- On startup SleekRec deletes leftover folders under `.sleekrec-replay` only; segments are not
-  masters. The recordings panel ignores that folder.
+  deletes the session folder. Main keeps routing audio to a stopping buffer until FFmpeg exits,
+  and `replay-disarm` waits for a buffer main is already stopping (low disk), so the renderer
+  never closes its audio first. Quitting or closing the window asks the renderer to turn replay
+  off for the same reason; main stops the buffer itself only when no renderer is left.
+- Turning replay back on waits for the previous buffer, and any save it is finishing, to stop.
+  The renderer awaits its pending disarm and closes the audio objects that disarm captured.
+- SleekRec deletes leftover folders under `.sleekrec-replay` (only that directory) at startup and
+  before each arm, when no buffer is running or stopping; segments are not masters. The
+  recordings panel ignores that folder.
 - Starting a recording turns replay off for its duration and turns it back on, on the same
   source, after the save: the two would otherwise compete for one desktop duplication and encoder.
 - "Turn on instant replay when SleekRec starts" arms the remembered source after the first source

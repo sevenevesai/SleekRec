@@ -3,6 +3,7 @@ import path from 'node:path'
 import { LibraryEntry, LibraryKind, SavedRecording } from '../src/recording'
 import { REPLAY_DIRECTORY } from './replay-buffer'
 import { runFfmpeg } from './ffmpeg'
+import { writeNew } from './export-recording'
 
 // Kept free of Electron imports so scripts/test-recording.cjs can exercise listing and recovery.
 
@@ -87,30 +88,41 @@ export async function listLibrary(outputFolder: string): Promise<LibraryEntry[]>
   const entries: LibraryEntry[] = []
   for (const dirent of dirents) {
     const file = path.join(outputFolder, dirent.name)
-    if (dirent.isDirectory()) {
-      if (dirent.name === REPLAY_DIRECTORY || !SESSION_FOLDER.test(dirent.name)) continue
-      const parts = (await fs.readdir(file).catch(() => [] as string[])).filter(name => /^part-\d+\.mkv$/.test(name))
-      if (!parts.length) continue
-      const stats = await Promise.all(parts.map(part => fs.stat(path.join(file, part))))
-      entries.push({ path: file, name: dirent.name, kind: 'unfinished', container: 'mkv', parts: parts.length,
-        bytes: stats.reduce((sum, stat) => sum + stat.size, 0), modifiedMs: Math.max(...stats.map(stat => stat.mtimeMs)) })
-      continue
+    try {
+      const entry = await libraryEntry(file, dirent)
+      if (entry) entries.push(entry)
+    } catch (error) {
+      // A replay or job renames its .partial file between readdir and stat; that entry is skipped.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
-    if (!dirent.isFile() || !MEDIA.test(dirent.name)) continue
-    const stat = await fs.stat(file)
-    const container = path.extname(dirent.name).slice(1).toLowerCase()
-    if (PARTIAL.test(dirent.name)) {
-      // Browser captures in progress or interrupted; FFmpeg's own .partial.mp4 outputs are not recordings.
-      if (container !== 'mp4') entries.push({ path: file, name: dirent.name, kind: 'unfinished', container, bytes: stat.size, modifiedMs: stat.mtimeMs })
-      continue
-    }
-    const entry: LibraryEntry = { path: file, name: dirent.name, kind: kindFromName(dirent.name), container,
-      bytes: stat.size, modifiedMs: stat.mtimeMs }
-    const sidecar = await readJson(`${file}.json`)
-    if (sidecar) fromSidecar(entry, sidecar)
-    entries.push(entry)
   }
   return entries.sort((a, b) => b.modifiedMs - a.modifiedMs)
+}
+
+async function libraryEntry(file: string, dirent: { name: string; isDirectory(): boolean; isFile(): boolean }): Promise<LibraryEntry | undefined> {
+  if (dirent.isDirectory()) {
+    if (dirent.name === REPLAY_DIRECTORY || !SESSION_FOLDER.test(dirent.name)) return undefined
+    const parts = (await fs.readdir(file).catch(() => [] as string[])).filter(name => /^part-\d+\.mkv$/.test(name))
+    if (!parts.length) return undefined
+    const stats = await Promise.all(parts.map(part => fs.stat(path.join(file, part))))
+    // Parts that outlived a successful save (their deletion failed) are leftovers, not a recording to recover.
+    const saved = await Promise.all(['.mp4', '.mkv'].map(ext => fs.access(file + ext).then(() => path.basename(file + ext), () => '')))
+    return { path: file, name: dirent.name, kind: 'unfinished', container: 'mkv', parts: parts.length,
+      bytes: stats.reduce((sum, stat) => sum + stat.size, 0), modifiedMs: Math.max(...stats.map(stat => stat.mtimeMs)),
+      ...(saved.find(Boolean) ? { savedAs: saved.find(Boolean) } : {}) }
+  }
+  if (!dirent.isFile() || !MEDIA.test(dirent.name)) return undefined
+  const stat = await fs.stat(file)
+  const container = path.extname(dirent.name).slice(1).toLowerCase()
+  if (PARTIAL.test(dirent.name)) {
+    // Browser captures in progress or interrupted; FFmpeg's own .partial.mp4 outputs are not recordings.
+    return container !== 'mp4' ? { path: file, name: dirent.name, kind: 'unfinished', container, bytes: stat.size, modifiedMs: stat.mtimeMs } : undefined
+  }
+  const entry: LibraryEntry = { path: file, name: dirent.name, kind: kindFromName(dirent.name), container,
+    bytes: stat.size, modifiedMs: stat.mtimeMs }
+  const sidecar = await readJson(`${file}.json`)
+  if (sidecar) fromSidecar(entry, sidecar)
+  return entry
 }
 
 /** `<base><suffix><ext>`, or with -2, -3… when that name exists. Never an existing file. */
@@ -126,9 +138,11 @@ export async function uniqueOutput(source: string, suffix: string, extension: st
 
 /**
  * Joins an interrupted capture without deleting it: the parts of a native session folder, or
- * a browser .partial file. The caller moves the originals to the recycle bin after success.
+ * a browser .partial file. Output goes through a .partial name, so a cancelled or failed
+ * recovery leaves no truncated file that would list as a recording. The caller moves the
+ * originals to the recycle bin after success.
  */
-export async function recoverUnfinished(file: string): Promise<SavedRecording> {
+export async function recoverUnfinished(file: string, signal?: AbortSignal): Promise<SavedRecording> {
   const stat = await fs.stat(file)
   let output: string
   if (stat.isDirectory()) {
@@ -139,15 +153,16 @@ export async function recoverUnfinished(file: string): Promise<SavedRecording> {
     await fs.writeFile(manifest, 'ffconcat version 1.0\n' + parts.map(name => `file '${name}'`).join('\n') + '\n')
     try {
       // A crash can cut the last cluster; FFmpeg copies every complete packet before it.
-      await runFfmpeg(['-n', '-err_detect', 'ignore_err', '-f', 'concat', '-safe', '1', '-i', manifest, '-map', '0', '-c', 'copy', output])
+      await writeNew(output, partial => runFfmpeg(['-n', '-err_detect', 'ignore_err', '-f', 'concat', '-safe', '1', '-i', manifest,
+        '-map', '0', '-c', 'copy', partial], 0, undefined, signal))
     } finally {
       await fs.unlink(manifest).catch(() => {}) // The manifest is ours; parts stay untouched.
     }
   } else {
     const h264 = /\.partial\.mkv$/i.test(file)
     output = await uniqueOutput(file.replace(PARTIAL, `.${h264 ? 'mp4' : 'webm'}`), '_recovered', h264 ? '.mp4' : '.webm')
-    await runFfmpeg(['-n', '-err_detect', 'ignore_err', '-i', file, '-map', '0:v:0', '-map', '0:a?', '-c:v', 'copy',
-      ...(h264 ? ['-c:a', 'aac', '-movflags', '+faststart'] : ['-c:a', 'copy']), output])
+    await writeNew(output, partial => runFfmpeg(['-n', '-err_detect', 'ignore_err', '-i', file, '-map', '0:v:0', '-map', '0:a?', '-c:v', 'copy',
+      ...(h264 ? ['-c:a', 'aac', '-movflags', '+faststart'] : ['-c:a', 'copy']), partial], 0, undefined, signal))
   }
   const result: SavedRecording = { path: output, info: { engine: stat.isDirectory() ? 'native' : 'browser', codec: 'recovered', width: 0, height: 0, targetFps: 0 },
     warning: 'Recovered from an interrupted recording; the last second may be missing.' }

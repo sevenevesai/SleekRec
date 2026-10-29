@@ -79,6 +79,7 @@ function MainApp() {
   const settingsRef = useRef(settings)
   const replayRef = useRef<Replay | null>(null)
   const replayAudioRef = useRef<CaptureAudio | null>(null)
+  const disarmingRef = useRef<Promise<void> | null>(null)
   const resumeReplayRef = useRef<SourceRef | null>(null)
   const startRef = useRef<(source: CaptureSource, options?: NativeOptions, origin?: Session['origin']) => Promise<void>>(async () => {})
   const armRef = useRef<(source: CaptureSource, options?: NativeOptions, quiet?: boolean) => Promise<void>>(async () => {})
@@ -114,16 +115,23 @@ function MainApp() {
     return list
   }, [])
 
-  const disarmReplay = useCallback(async () => {
+  const disarmReplay = useCallback((): Promise<void> => {
     const current = replayRef.current
-    if (!current) return
+    if (!current) return disarmingRef.current ?? Promise.resolve()
     replayRef.current = null
     setReplay(null)
-    // FFmpeg must handle q while PCM still flows, as with a paused segment.
-    await window.electronAPI.replayDisarm(current.id).catch(e => setError(`Instant replay: ${message(e)}`))
-    await replayAudioRef.current?.pausePCM()
-    replayAudioRef.current?.close()
+    // Taken now: a new arm may replace the ref before this disarm finishes.
+    const audio = replayAudioRef.current
     replayAudioRef.current = null
+    const done = (async () => {
+      // FFmpeg must handle q while PCM still flows, as with a paused segment.
+      await window.electronAPI.replayDisarm(current.id).catch(e => setError(`Instant replay: ${message(e)}`))
+      await audio?.pausePCM()
+      audio?.close()
+    })()
+    disarmingRef.current = done
+    void done.finally(() => { if (disarmingRef.current === done) disarmingRef.current = null })
+    return done
   }, [])
 
   const resumeReplay = useCallback(async () => {
@@ -289,6 +297,7 @@ function MainApp() {
       window.electronAPI.onRecordingError(fail),
       window.electronAPI.onHotkeyRecord(() => { void handleHotkeyRecord() }),
       window.electronAPI.onHotkeyReplayToggle(() => { void handleReplayToggle() }),
+      window.electronAPI.onReplayOff(() => { void disarmReplay() }),
       window.electronAPI.onFinalizeProgress(fraction => setBusy(`Making the MP4… ${Math.round(fraction * 100)}%`)),
       window.electronAPI.onReplayStatus(buffered => {
         if (replayRef.current) { replayRef.current = { ...replayRef.current, buffered }; setReplay(replayRef.current) }
@@ -438,6 +447,8 @@ function MainApp() {
   startRef.current = handleStart
 
   const armReplay = async (source: CaptureSource, options: NativeOptions = {}, quiet = false) => {
+    // The previous buffer must finish stopping (and its save) before a new one starts.
+    await disarmingRef.current
     if (!loaded || replayRef.current || sessionRef.current || operationRef.current) return
     operationRef.current = true
     setBusy('Turning on instant replay…')
