@@ -1,0 +1,14 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* The window is 3 px larger than the region on each side, so the border is never captured. */
+.frame {
+  box-sizing: border-box;
+  height: 100%;
+  border: 3px solid #bb86fc;
+  border-radius: 2px;
+}

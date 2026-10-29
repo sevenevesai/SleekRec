@@ -1,5 +1,5 @@
 import workletUrl from './pcm-worklet.js?url'
-import { AppSettings, qualityPresets } from './recording'
+import { AppSettings, audioTrackTitles, qualityPresets } from './recording'
 
 export class CaptureAudio {
   micGain: GainNode | null = null
@@ -7,7 +7,9 @@ export class CaptureAudio {
   output: MediaStream | null = null
   private streams: MediaStream[] = []
   private mix?: GainNode
+  private system?: AudioNode
   private channels = 2
+  private tracks = 1
   private worklet?: AudioWorkletNode
   private silence?: ConstantSourceNode
   private sending = false
@@ -18,6 +20,8 @@ export class CaptureAudio {
   async open(settings: AppSettings, desktop?: MediaStream, sourceId?: string): Promise<void> {
     const preset = qualityPresets[settings.qualityPreset]
     this.channels = preset.audioChannels
+    // Separate tracks are native-only: MediaRecorder writes a single audio track.
+    this.tracks = desktop ? 1 : Math.max(1, audioTrackTitles(settings).length)
     if (!settings.systemAudio && !settings.micEnabled) return
     try {
       const ctx = new AudioContext({ sampleRate: preset.audioSampleRate })
@@ -40,7 +44,8 @@ export class CaptureAudio {
           this.streams.push(system)
         }
         if (!system.getAudioTracks().length) throw new Error('System audio capture is unavailable. Turn off System audio to record video only.')
-        ctx.createMediaStreamSource(new MediaStream(system.getAudioTracks())).connect(this.mix)
+        this.system = ctx.createMediaStreamSource(new MediaStream(system.getAudioTracks()))
+        this.system.connect(this.mix)
       }
       if (settings.micEnabled) {
         const raw = settings.micRawInput
@@ -67,17 +72,24 @@ export class CaptureAudio {
     const ctx = this.context
     if (!this.worklet) {
       await ctx.audioWorklet.addModule(workletUrl)
-      this.worklet = new AudioWorkletNode(ctx, 'pcm-recorder', { channelCount: this.channels,
-        channelCountMode: 'explicit', processorOptions: { channels: this.channels } })
+      this.worklet = new AudioWorkletNode(ctx, 'pcm-recorder', { numberOfInputs: this.tracks,
+        channelCount: this.channels, channelCountMode: 'explicit',
+        processorOptions: { channels: this.channels, tracks: this.tracks } })
       // Native PCM uses one audio graph/clock. A MediaStream round trip can
       // independently buffer/pull the graph and accumulate latency over time.
       this.mix.disconnect()
-      this.mix.connect(this.worklet)
+      this.mix.connect(this.worklet, 0, 0)
+      // Separate tracks tap the same nodes the mix sums, after mic gain, so mute and volume
+      // apply to both and every track shares the graph's clock (audioTrackTitles order).
+      if (this.tracks === 3) {
+        this.system?.connect(this.worklet, 0, 1)
+        this.micGain?.connect(this.worklet, 0, 2)
+      }
       this.output?.getTracks().forEach(track => track.stop())
       this.output = null
       this.silence = ctx.createConstantSource()
       this.silence.offset.value = 0
-      this.silence.connect(this.worklet)
+      for (let input = 0; input < this.tracks; input++) this.silence.connect(this.worklet, 0, input)
       this.silence.start()
       const mute = ctx.createGain()
       mute.gain.value = 0
@@ -91,12 +103,13 @@ export class CaptureAudio {
           ? stamp.performanceTime! + (audioTime - stamp.contextTime) * 1000
           : performance.now() + (audioTime - ctx.currentTime) * 1000)
         this.queuedBytes += bytes
-        if (this.queuedBytes > 2_000_000) {
+        if (this.queuedBytes > 2_000_000 * this.tracks) {
           this.failure = new Error('Audio cannot keep up. Recording has stopped to preserve synchronization.')
           onError(this.failure)
           return
         }
-        this.pending = this.pending.then(() => window.electronAPI.nativeAudio(id, { data: buffer, capturedAt }))
+        const tracks = this.tracks
+        this.pending = this.pending.then(() => window.electronAPI.nativeAudio(id, { data: buffer, capturedAt, tracks }))
           .catch(error => {
             if (!this.failure && this.sending) {
               this.failure = error instanceof Error ? error : new Error(String(error))

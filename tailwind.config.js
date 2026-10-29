@@ -3,6 +3,8 @@ export default {
   content: [
     "./index.html",
     "./overlay.html",
+    "./toast.html",
+    "./region.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {

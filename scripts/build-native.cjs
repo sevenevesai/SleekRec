@@ -17,7 +17,7 @@ try {
   const setup = path.join(installation, 'VC', 'Auxiliary', 'Build', 'vcvars64.bat')
   // Only compilation runs in cmd; filesystem operations above use Node APIs.
   const batch = path.join(path.dirname(output), 'compile.cmd')
-  fs.writeFileSync(batch, `@echo off\r\ncall "${setup}" >nul\r\nif errorlevel 1 exit /b 1\r\ncl /nologo /EHsc /O2 /MT "${source}" /Fe:"${output}" /Fo:"${output}.obj" /link dxgi.lib d3d11.lib user32.lib\r\n`)
+  fs.writeFileSync(batch, `@echo off\r\ncall "${setup}" >nul\r\nif errorlevel 1 exit /b 1\r\ncl /nologo /EHsc /O2 /MT /std:c++17 "${source}" /Fe:"${output}" /Fo:"${output}.obj" /link dxgi.lib dwmapi.lib user32.lib\r\n`)
   execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${batch}"`],
     { cwd: root, stdio: 'inherit', windowsHide: true, windowsVerbatimArguments: true })
 } catch (error) {

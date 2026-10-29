@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en" class="overlay">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Same policy as index.html; vite.config.ts loosens it for the dev server only. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'" />
+    <title>Select an area</title>
+  </head>
+  <body class="overflow-hidden cursor-crosshair select-none text-white">
+    <canvas id="canvas" class="fixed inset-0"></canvas>
+    <div id="hint" class="fixed top-6 left-1/2 -translate-x-1/2 rounded-lg bg-surface/95 border border-gray-700 px-4 py-2 text-sm pointer-events-none">
+      Drag to select an area, or click a window. Enter records, Esc cancels.
+    </div>
+    <div id="label" class="fixed hidden rounded bg-black/80 px-2 py-1 text-xs tabular-nums pointer-events-none"></div>
+    <script type="module" src="/src/region.ts"></script>
+  </body>
+</html>

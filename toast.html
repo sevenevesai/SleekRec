@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en" class="overlay">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Same policy as index.html; vite.config.ts loosens it for the dev server only. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'" />
+    <title>SleekRec</title>
+  </head>
+  <body class="text-white overflow-hidden">
+    <div id="toast" role="status" aria-live="polite"
+      class="h-screen w-full flex items-center gap-3 px-4 bg-surface/95 rounded-xl border border-gray-700/60">
+      <div id="dot" class="w-2.5 h-2.5 shrink-0 rounded-full bg-primary"></div>
+      <p id="message" class="text-sm leading-snug line-clamp-2"></p>
+    </div>
+    <script type="module" src="/src/toast.ts"></script>
+  </body>
+</html>

@@ -3,9 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <!-- Packaged policy; vite.config.ts loosens it for the dev server only. img-src allows
-         data: because source thumbnails arrive as data: URLs. base-uri and form-action do
-         not fall back to default-src. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; base-uri 'none'; form-action 'none'" />
+         data: because source and recording thumbnails arrive as data: URLs; media-src is the
+         trim preview's protocol (electron/main.ts). base-uri and form-action do not fall back
+         to default-src. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; media-src sleekrec-media:; base-uri 'none'; form-action 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sleek Recorder</title>
   </head>

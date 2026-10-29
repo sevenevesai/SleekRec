@@ -21,21 +21,43 @@ function resolveFfmpeg(): string {
 
 export const ffmpegBinary = resolveFfmpeg()
 
-export function runFfmpeg(args: string[], timeout = 0, onStdout?: (data: Buffer) => void): Promise<string> {
+export class CancelledError extends Error {
+  constructor() { super('Cancelled') }
+}
+
+export function runFfmpeg(args: string[], timeout = 0, onStdout?: (data: Buffer) => void, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(new CancelledError()); return }
     const child = spawn(ffmpegBinary, ['-hide_banner', '-nostdin', ...args], { windowsHide: true })
     let log = ''
     const append = (data: Buffer) => { log = (log + data.toString()).slice(-24_000) }
     child.stdout.on('data', onStdout || append)
     child.stderr.on('data', append)
     const timer = timeout ? setTimeout(() => child.kill(), timeout) : undefined
-    child.on('error', error => { clearTimeout(timer); reject(error) })
+    const abort = () => child.kill()
+    signal?.addEventListener('abort', abort, { once: true })
+    child.on('error', error => { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(error) })
     child.on('close', code => {
       clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
+      if (signal?.aborted) { reject(new CancelledError()); return }
       // Some Windows FFmpeg builds return zero on output-open failure (-n).
       // Never treat that as a successful remux and delete the input afterwards.
       if (code === 0 && !/Error opening (?:input|output) file|Conversion failed!|No space left on device/i.test(log)) resolve(log)
       else reject(new Error(`FFmpeg exited (${code}): ${log.slice(-4000)}`))
     })
   })
+}
+
+/** Calls back with the fraction done from -progress output; the caller passes the duration. */
+export function progressReader(seconds: number, onProgress: (fraction: number) => void): (data: Buffer) => void {
+  let pending = ''
+  return data => {
+    const lines = (pending + data.toString()).split('\n')
+    pending = lines.pop() || ''
+    for (const line of lines) {
+      const time = /^out_time_us=(\d+)/.exec(line)
+      if (time && seconds > 0) onProgress(Math.min(1, Number(time[1]) / 1e6 / seconds))
+    }
+  }
 }

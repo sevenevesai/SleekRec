@@ -28,7 +28,7 @@ function uint(tag: number, value: number): Buffer {
   return element(tag, data)
 }
 
-export function pcmHeader(sampleRate: number, channels: number): Buffer {
+export function pcmHeader(sampleRate: number, channels: number, tracks = 1): Buffer {
   const rate = Buffer.alloc(8)
   rate.writeDoubleBE(sampleRate)
   return Buffer.concat([
@@ -37,13 +37,19 @@ export function pcmHeader(sampleRate: number, channels: number): Buffer {
     id(0x18538067), Buffer.from([0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
     element(0x1549a966, Buffer.concat([uint(0x2ad7b1, 1_000_000),
       element(0x4d80, Buffer.from('SleekRec')), element(0x5741, Buffer.from('SleekRec'))])),
-    element(0x1654ae6b, element(0xae, Buffer.concat([uint(0xd7, 1), uint(0x73c5, 1), uint(0x83, 2),
+    element(0x1654ae6b, Buffer.concat(Array.from({ length: tracks }, (_, i) => element(0xae, Buffer.concat([
+      uint(0xd7, i + 1), uint(0x73c5, i + 1), uint(0x83, 2),
       element(0x86, Buffer.from('A_PCM/FLOAT/IEEE')), element(0xe1, Buffer.concat([
-        element(0xb5, rate), uint(0x9f, channels), uint(0x6264, 32)]))]))),
+        element(0xb5, rate), uint(0x9f, channels), uint(0x6264, 32)]))]))))),
   ])
 }
 
-export function pcmPacket(milliseconds: number, data: Buffer): Buffer {
-  const block = Buffer.concat([Buffer.from([0x81, 0, 0, 0x80]), data])
-  return element(0x1f43b675, Buffer.concat([uint(0xe7, Math.max(0, Math.round(milliseconds))), element(0xa3, block)]))
+/**
+ * One cluster per capture chunk with a SimpleBlock per track, so every track carries the same
+ * capture timestamp and FFmpeg's per-track resampling makes identical drift corrections.
+ */
+export function pcmPacket(milliseconds: number, tracks: Buffer | Buffer[]): Buffer {
+  const blocks = (Array.isArray(tracks) ? tracks : [tracks]).map((data, i) =>
+    element(0xa3, Buffer.concat([Buffer.from([0x81 + i, 0, 0, 0x80]), data])))
+  return element(0x1f43b675, Buffer.concat([uint(0xe7, Math.max(0, Math.round(milliseconds))), ...blocks]))
 }

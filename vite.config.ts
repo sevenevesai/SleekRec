@@ -34,6 +34,9 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
         overlay: path.resolve(__dirname, 'overlay.html'),
+        toast: path.resolve(__dirname, 'toast.html'),
+        region: path.resolve(__dirname, 'region.html'),
+        frame: path.resolve(__dirname, 'frame.html'),
       },
     },
   },
