@@ -1,0 +1,33 @@
+ddagrab paces itself with av_usleep, which is Sleep on Windows. Since Windows 10 2004 a process
+that does not ask for a finer timer gets the default 15.6 ms resolution, so a 6 ms wait at 165 Hz
+sleeps about 15 ms, misses frames and catches up in bursts. Request 1 ms while a ddagrab filter
+exists. Needs -lwinmm (build-ffmpeg-win.sh).
+
+--- a/libavfilter/vsrc_ddagrab.c
++++ b/libavfilter/vsrc_ddagrab.c
+@@ -24,6 +24,7 @@
+ #endif
+ 
+ #include <windows.h>
++#include <timeapi.h>
+ 
+ #define COBJMACROS
+ 
+@@ -142,6 +143,8 @@ static av_cold void ddagrab_uninit(AVFilterContext *avctx)
+ {
+     DdagrabContext *dda = avctx->priv;
+ 
++    timeEndPeriod(1);
++
+     release_resource(&dda->blend_state);
+     release_resource(&dda->blend_state_xor);
+     release_resource(&dda->sampler_state);
+@@ -435,6 +438,8 @@ static av_cold int ddagrab_init(AVFilterContext *avctx)
+ {
+     DdagrabContext *dda = avctx->priv;
+ 
++    timeBeginPeriod(1);
++
+     dda->last_frame = av_frame_alloc();
+     if (!dda->last_frame)
+         return AVERROR(ENOMEM);

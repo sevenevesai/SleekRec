@@ -26,7 +26,7 @@ a probe that found nothing retries after a minute. Settings and the picker show 
 
 | Adapter | Family | Path from the BGRA D3D11 frame | Rate control |
 |---|---|---|---|
-| NVIDIA | NVENC | Encoder reads the texture | `constqp`, QP 28/23/19; Ultra lossless 4:4:4 |
+| NVIDIA | NVENC | Encoder reads the texture | `constqp`, QP 28/23/19; Ultra lossless 4:4:4; P4, or P1 above 1440p165 |
 | AMD | AMF | Encoder reads the texture (patch 0001 adds BGRA) | `cqp`, same QPs; `speed` above 1080p120 |
 | Intel | Quick Sync | Fixed pool (patch 0003), `hwmap` to QSV, `vpp_qsv` to NV12 BT.709 | CQP via `-q:v`, same QPs |
 | Any | Media Foundation | `hwdownload`, CPU BGRA to NV12 BT.709 | Quality 55/70/82; hardware MFTs only |
@@ -42,6 +42,12 @@ No resize filter or forced 30 fps conversion is inserted. Display refresh or the
 rate sets the capture target (up to 240 fps). Pass through capture timestamps without output
 frame rescheduling. The bundled `ddagrab` can repeat the last image when the desktop has not
 changed; encoded fps and packet pacing therefore do not measure unique game frames.
+
+`ddagrab` paces itself with `Sleep`, and Windows gives a process the default 15.6 ms timer unless
+it asks for better. Patch 0004 requests 1 ms while the filter exists. Without it, 165 fps capture
+delivered about 125 fps with 15-16 ms gaps; with it, 165 fps with 95% of gaps at or under 8 ms
+(a static desktop on the RTX 2080 Ti, while a game was also running, so treat these as a
+comparison). This is the first thing to check if delivered fps sits near 60-125 at a high target.
 
 Ultra uses NVENC P1, lossless tuning and `rgb_mode=yuv444` (H.264 High 4:4:4 Predictive or
 HEVC RExt). This preserves all YUV samples after NVENC's RGB-to-YUV conversion, not bit-identical

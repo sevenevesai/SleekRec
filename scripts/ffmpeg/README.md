@@ -10,7 +10,7 @@ macOS and Linux still use ffmpeg-static. `electron/ffmpeg.ts` resolves it, and
 | | |
 |---|---|
 | Size | 13,795,328 bytes |
-| SHA256 | `af98a7f65a3c466b7086054e48f52f53e3f6fca82b0d01a04cf49ddba59db4f9` |
+| SHA256 | `92a9f4b73091806a358668d4b5e40509d22f1db8dec5cdeef6faabd01af59e71` |
 | `ffmpeg -version` | `ffmpeg version n6.1.1-sleekrec`, built with gcc 16.2.0 (Rev6, Built by MSYS2 project) |
 | License | GPL version 2 or later (libx264); notices in `vendor/ffmpeg/win32-x64/LICENSE.txt` |
 
@@ -33,13 +33,15 @@ Pinned in `build-ffmpeg-win.sh`; each fetch is checked against the commit or SHA
 ### Patches
 
 `scripts/ffmpeg/patches/*.patch` apply to the pinned tree in name order; each header explains
-why. They change only paths that SleekRec's default-adapter NVENC capture did not use.
+why. 0001 to 0003 change only paths that SleekRec's default-adapter NVENC capture did not use; 0004
+changes capture timing on every adapter.
 
 | Patch | Fixes |
 |---|---|
 | `0001-amfenc-accept-bgra-input` | AMF refused ddagrab's BGRA frames ("Format of input frames context (bgra) is not supported") |
 | `0002-d3d11va-explicit-adapter-from-dxgi-1.1-factory` | `-init_hw_device d3d11va=<index>` devices failed Desktop Duplication ("Invalid output duplication argument") |
 | `0003-ddagrab-fixed-frame-pool-for-qsv` | QSV maps only fixed frame pools; `ddagrab=...:extra_hw_frames=N` now fixes the pool |
+| `0004-ddagrab-1ms-timer-resolution` | ddagrab's `Sleep` waits ran at the default 15.6 ms timer, so 165 fps capture delivered about 125 fps in bursts |
 
 The libvpl build also rewrites two files in place, both in the script: an MSVC-only shim in
 `mfx_dispatcher_defs.h` that breaks mingw-w64 14's `stralign.h` (an undefined `_MSC_VER`
@@ -93,9 +95,9 @@ opus and nv-codec-headers notices). Sources and objects go to `.test-output/ffmp
 `FFMPEG_BUILD_DIR`. Dependencies are cached per pin; after changing a dependency's configure
 flags, run with `--clean`, which rebuilds everything (about 5 minutes on the 2026-10-24 machine).
 
-The output is byte-for-byte reproducible with the same toolchain: builds in
-`.test-output/ffmpeg-build` and `S:/tools/ffmpeg-repro-check` (2026-10-29) gave the SHA256 above.
-Four things keep it that way. FFmpeg builds in-tree, so `__FILE__` strings stay relative. libvpx
+The output is byte-for-byte reproducible with the same toolchain: before patch 0004, builds in
+`.test-output/ffmpeg-build` and `S:/tools/ffmpeg-repro-check` (2026-10-29) gave one SHA256. The
+current binary has been built once, in `.test-output/ffmpeg-build`. Four things keep it that way. FFmpeg builds in-tree, so `__FILE__` strings stay relative. libvpx
 gets no `--prefix`, because it embeds its configure arguments. libvpl builds out of tree with
 `-ffile-prefix-map`. `SOURCE_DATE_EPOCH` is pinned, because `strip` otherwise writes the current
 time into the PE header. A different gcc or binutils changes the bytes, not the components.
@@ -103,7 +105,7 @@ time into the PE header. A different gcc or binutils changes the bytes, not the 
 ## Configure line
 
 ```
---pkg-config=pkgconf --pkg-config-flags=--static --extra-version=sleekrec --enable-gpl --enable-static --disable-shared --extra-ldflags=-static --disable-autodetect --disable-w32threads --disable-doc --disable-ffplay --disable-ffprobe --disable-network --disable-postproc --disable-everything --enable-d3d11va --enable-ffnvcodec --enable-nvenc --enable-amf --enable-libvpl --enable-mediafoundation --enable-libx264 --enable-libvpx --enable-libopus --enable-indev=lavfi --enable-protocol='file,pipe' --enable-demuxer='matroska,mov,concat' --enable-muxer='matroska,webm,mp4,mov,null,framecrc,hash,pcm_f32le,segment,rawvideo' --enable-decoder='h264,hevc,vp8,vp9,opus,aac,ffv1,rawvideo,wrapped_avframe,pcm_s16le,pcm_f32le' --enable-encoder='h264_nvenc,hevc_nvenc,h264_amf,hevc_amf,h264_qsv,hevc_qsv,h264_mf,hevc_mf,libx264,aac,libopus,libvpx_vp9,ffv1,rawvideo,wrapped_avframe,pcm_s16le,pcm_f32le' --enable-parser='h264,hevc,aac,opus,vp8,vp9' --enable-bsf='h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc,extract_extradata,vp9_superframe,null' --enable-filter='ddagrab,color,testsrc,testsrc2,sine,select,settb,setpts,asetpts,aresample,aformat,format,scale,fps,null,anull,trim,atrim,hwupload,hwdownload,hwmap,vpp_qsv'
+--pkg-config=pkgconf --pkg-config-flags=--static --extra-version=sleekrec --enable-gpl --enable-static --disable-shared --extra-ldflags=-static --extra-libs=-lwinmm --disable-autodetect --disable-w32threads --disable-doc --disable-ffplay --disable-ffprobe --disable-network --disable-postproc --disable-everything --enable-d3d11va --enable-ffnvcodec --enable-nvenc --enable-amf --enable-libvpl --enable-mediafoundation --enable-libx264 --enable-libvpx --enable-libopus --enable-indev=lavfi --enable-protocol='file,pipe' --enable-demuxer='matroska,mov,concat' --enable-muxer='matroska,webm,mp4,mov,null,framecrc,hash,pcm_f32le,segment,rawvideo' --enable-decoder='h264,hevc,vp8,vp9,opus,aac,ffv1,rawvideo,wrapped_avframe,pcm_s16le,pcm_f32le' --enable-encoder='h264_nvenc,hevc_nvenc,h264_amf,hevc_amf,h264_qsv,hevc_qsv,h264_mf,hevc_mf,libx264,aac,libopus,libvpx_vp9,ffv1,rawvideo,wrapped_avframe,pcm_s16le,pcm_f32le' --enable-parser='h264,hevc,aac,opus,vp8,vp9' --enable-bsf='h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc,extract_extradata,vp9_superframe,null' --enable-filter='ddagrab,color,testsrc,testsrc2,sine,select,settb,setpts,asetpts,aresample,aformat,format,scale,fps,null,anull,trim,atrim,hwupload,hwdownload,hwmap,vpp_qsv'
 ```
 
 `--disable-w32threads` matches the shipped build's threading (static winpthreads). Configure

@@ -150,7 +150,7 @@ flowchart LR
 - **Main process** [Electron, TypeScript]: settings, one recording session at a time, instant
   replay, free-space checks, global hotkeys, the tray, one export or trim job at a time, a range-
   serving media protocol for previews, and the GitHub Releases updater (electron-updater).
-- **GPU engine** [FFmpeg 6.1.1, three small patches]: `ddagrab` desktop duplication on the
+- **GPU engine** [FFmpeg 6.1.1, four small patches]: `ddagrab` desktop duplication on the
   adapter that owns the display, encoded on that adapter, with the renderer's PCM muxed in live;
   MKV parts on disk, an MP4 on a clean stop.
 - **Browser engine** [FFmpeg]: streams MediaRecorder chunks to disk in order, then remuxes H.264

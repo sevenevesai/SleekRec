@@ -148,7 +148,7 @@ config=(
   --pkg-config=pkgconf --pkg-config-flags=--static
   --extra-version=sleekrec
   --enable-gpl --enable-static --disable-shared
-  --extra-ldflags=-static
+  --extra-ldflags=-static --extra-libs=-lwinmm
   --disable-autodetect --disable-w32threads
   --disable-doc --disable-ffplay --disable-ffprobe --disable-network --disable-postproc
   --disable-everything
