@@ -24,6 +24,7 @@
     "appId": "com.sleek.recorder",
     "productName": "SleekRec",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "afterPack": "scripts/after-pack.cjs",
     "directories": {
       "output": "dist_app",
       "buildResources": "build"
