@@ -25,8 +25,9 @@ they cover the replay length, pins them against pruning, and joins them with the
 using each segment's explicit `duration` from the list. Explicit durations keep the original
 timeline at every boundary; probed durations would leave a gap where audio outlasts video. The
 join stream-copies into `Recording_<stamp>_<id>_replay.mp4` (MKV for Ultra) with `+faststart`,
-reads the packets once more through a `framecrc` output for the sidecar's pacing statistics, and
-verifies the duration within 2%. Saves are independent: two quick presses give overlapping clips.
+reads the packets once more through a `framecrc` output for the sidecar's pacing statistics (the
+always-on capture emits no per-frame telemetry, so an armed buffer stays quiet), and verifies the
+duration within 2%. Saves are independent: two quick presses give overlapping clips.
 
 Feedback comes from a toast window (`toast.html`): always on top, click-through and excluded from
 capture. Windows suppresses notifications during fullscreen games, so replay does not use them.

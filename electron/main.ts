@@ -87,7 +87,12 @@ const defaultSettings: AppSettings = {
   lastSource: null,
 }
 
-function loadSettings(): AppSettings {
+// Main is the only writer, and media requests and panel cards read settings many times a second:
+// read the file once rather than blocking the main process on each. Never mutate the result;
+// recording sessions keep it as their snapshot.
+let currentSettings: AppSettings | undefined
+
+function readSettings(): AppSettings {
   try {
     if (fs.existsSync(settingsPath)) {
       return normalizeSettings(JSON.parse(fs.readFileSync(settingsPath, 'utf-8')), defaultSettings)
@@ -98,9 +103,15 @@ function loadSettings(): AppSettings {
   return normalizeSettings({}, defaultSettings)
 }
 
+function loadSettings(): AppSettings {
+  currentSettings ??= readSettings()
+  return currentSettings
+}
+
 function saveSettings(settings: Partial<AppSettings>): AppSettings {
   const updated = normalizeSettings({ ...loadSettings(), ...settings }, defaultSettings)
   fs.writeFileSync(settingsPath, JSON.stringify(updated, null, 2))
+  currentSettings = updated
   applySettings(updated)
   return updated
 }
@@ -160,13 +171,14 @@ async function watchDisk(folder: string, onLow: (message: string) => void): Prom
     return stat.bavail * stat.bsize
   }
   if (await freeBytes() < 512 * MiB) throw new Error('Less than 512 MB is free in the recording folder. Free some space before recording.')
+  // Lossless capture can write about 200 MB/s; the floor must outlast the gap between checks.
   const timer = setInterval(() => {
     void freeBytes().then(bytes => {
       if (bytes >= 512 * MiB) return
       clearInterval(timer)
       onLow('Recording stopped because less than 512 MB of disk space remains.')
     }).catch(error => onLow(`The recording drive is unavailable: ${String(error)}`))
-  }, 3000)
+  }, 1000)
   return () => clearInterval(timer)
 }
 
@@ -331,7 +343,7 @@ async function pickRegion(screenSourceId: string): Promise<CaptureRegion | null>
 }
 
 async function openRegionPicker(screenSourceId: string): Promise<CaptureRegion | null> {
-  const source = (await captureSources()).find(s => s.id === screenSourceId)
+  const source = (await captureSources(false)).find(s => s.id === screenSourceId)
   const native = source?.nativeDisplay
   const display = native && electronDisplayFor(native)
   if (!native || !display) throw new Error('Region capture needs a screen with GPU capture')
@@ -475,9 +487,13 @@ app.on('will-quit', () => {
   tray?.destroy()
 })
 
-async function captureSources(): Promise<CaptureSource[]> {
+/**
+ * Thumbnails are for the picker only. Hotkey starts run inside games and skip them: 250 ms instead
+ * of 550 ms per call on the main process, most of that drawing and encoding images nobody sees.
+ */
+async function captureSources(thumbnails = true): Promise<CaptureSource[]> {
   const [sources, helperDisplays] = await Promise.all([
-    desktopCapturer.getSources({ types: ['window', 'screen'], thumbnailSize: { width: 480, height: 270 } }),
+    desktopCapturer.getSources({ types: ['window', 'screen'], thumbnailSize: thumbnails ? { width: 480, height: 270 } : { width: 0, height: 0 } }),
     listNativeDisplays(displayHelper)
   ])
   const nativeDisplays = await withEncoders(helperDisplays)
@@ -488,7 +504,9 @@ async function captureSources(): Promise<CaptureSource[]> {
     const rect = display && process.platform === 'win32' ? screen.dipToScreenRect(null, display.bounds) : undefined
     const nativeDisplay = rect ? nativeDisplays.find(d => d.x === rect.x && d.y === rect.y &&
       d.width === rect.width && d.height === rect.height) : undefined
-    return { id: source.id, name: source.name, thumbnail: source.thumbnail.toDataURL(), nativeDisplay,
+    return { id: source.id, name: source.name, nativeDisplay,
+      // JPEG, not toDataURL's PNG: 7 ms and 0.3 MB for eleven sources against 104 ms and 1.2 MB.
+      thumbnail: thumbnails ? `data:image/jpeg;base64,${source.thumbnail.toJPEG(80).toString('base64')}` : '',
       ...(process.platform === 'win32' && source.id.startsWith('screen:') && !nativeDisplay ? {
         gpuUnavailableReason: 'GPU capture could not be matched to this screen. Refresh the sources and check the display connection. Choose Browser explicitly in Settings to use the slower recorder.'
       } : {}),
@@ -530,7 +548,7 @@ function sourceRef(sourceId: unknown, options: unknown): SourceRef {
  * frame when recording starts, on its monitor; it does not follow the window afterwards.
  */
 async function resolveTarget(ref: SourceRef, settings: AppSettings): Promise<{ target: CaptureTarget; source: CaptureSource }> {
-  const sources = await captureSources()
+  const sources = await captureSources(false)
   const source = sources.find(s => s.id === ref.id)
   if (!source) throw new Error('This source is no longer available. Refresh the sources.')
   let display = source.nativeDisplay
@@ -551,7 +569,7 @@ async function resolveTarget(ref: SourceRef, settings: AppSettings): Promise<{ t
   return { target: { display, family: support.family, ...(crop && !whole ? { region: crop } : {}) }, source }
 }
 
-ipcMain.handle('get-sources', captureSources)
+ipcMain.handle('get-sources', (_event, thumbnails: unknown) => captureSources(thumbnails !== false))
 ipcMain.handle('native-capabilities', async (): Promise<NativeCapabilities> => {
   if (process.platform !== 'win32') return { available: false, reason: 'GPU screen recording is currently available on Windows.' }
   const displays = await withEncoders(await listNativeDisplays(displayHelper))
@@ -758,8 +776,8 @@ async function mediaDetails(file: string): Promise<MediaDetails> {
   const key = createHash('sha1').update(`${file}|${stat.size}|${stat.mtimeMs}`).digest('hex')
   if (!details.has(key)) {
     const cache = path.join(app.getPath('userData'), 'thumbnails', `${key}.json`)
-    details.set(key, limited(async () => {
-      try { return JSON.parse(await fs.promises.readFile(cache, 'utf8')) as MediaDetails } catch { /* Not cached yet. */ }
+    // A cached card must not queue behind the probes of cards that are not cached yet.
+    details.set(key, fs.promises.readFile(cache, 'utf8').then(text => JSON.parse(text) as MediaDetails).catch(() => limited(async () => {
       const info = await probeMedia(file)
       const result: MediaDetails = { seconds: info.seconds, width: info.video?.width, height: info.video?.height,
         codec: info.video?.codec, pixelFormat: info.video?.pixelFormat,
@@ -774,7 +792,7 @@ async function mediaDetails(file: string): Promise<MediaDetails> {
       await fs.promises.mkdir(path.dirname(cache), { recursive: true })
       await fs.promises.writeFile(cache, JSON.stringify(result)).catch(() => {}) // The cache is an optimization.
       return result
-    }))
+    })))
     void details.get(key)!.catch(() => details.delete(key))
   }
   return details.get(key)!
@@ -787,7 +805,7 @@ ipcMain.handle('media-frame', async (_event, file: unknown, seconds: number, wid
   const info = await mediaDetails(input)
   const w = Math.max(2, Math.min(1280, Math.round(width / 2) * 2))
   const h = Math.max(2, Math.round(w * (info.height || 9) / (info.width || 16) / 2) * 2)
-  const frame = await grabFrame(input, Number(seconds) || 0, w, h, false)
+  const frame = await grabFrame(input, Number(seconds) || 0, w, h)
   return 'data:image/jpeg;base64,' + nativeImage.createFromBitmap(frame, { width: w, height: h }).toJPEG(80).toString('base64')
 })
 ipcMain.handle('media-keyframes', (_event, file: unknown) => keyframeTimes(libraryPath(outputFolder(), file)))

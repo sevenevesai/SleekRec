@@ -23,6 +23,8 @@ so an unexpected engine choice can be traced after recording.
 Each source refresh runs `desktopCapturer` and spawns the helper twice, so the picker refreshes on
 mount, on window focus (at most once per 2 s) and from Refresh sources, never on a timer. The
 main window's `backgroundThrottling: false` disables the Page Visibility API; focus is the signal.
+Lookups that show no picker (hotkey starts, replay re-arm, `resolveTarget`) pass `thumbnails: false`,
+because they run inside games and drawing and encoding thumbnails is most of a refresh's cost.
 
 The 320 px recording overlay is a static page, `overlay.html` with `src/overlay.ts`, without React.
 It reaches the main window only through the `timer-update`, `recording-stats` and `overlay-*`
@@ -147,7 +149,7 @@ operations: [library-and-editing.md](library-and-editing.md).
 Windows runs a trimmed FFmpeg n6.1.1 from `vendor/ffmpeg/win32-x64/ffmpeg.exe`, packaged as
 `resources/ffmpeg.exe`; `electron/ffmpeg.ts` resolves it, and macOS/Linux keep `ffmpeg-static`.
 Keep the version at 6.1.1: the workarounds in this document describe that version's behaviour,
-and a different version changes capture timing. Three small patches in `scripts/ffmpeg/patches`
+and a different version changes capture timing. Four small patches in `scripts/ffmpeg/patches`
 apply on top, each explained in its header. The recipe, pins and configure line live in
 [scripts/ffmpeg/README.md](../scripts/ffmpeg/README.md). The build holds only the components the
 app and its tests use, so a missing one fails as FFmpeg error text from `runFfmpeg` (for example
@@ -164,7 +166,7 @@ The [September 2026 investigation](recording-investigation.md) records the suppl
 clip's measured gaps and the unresolved original engine selection.
 
 - `npx tsc --noEmit`: no diagnostics.
-- `npm test` (22 tests): ordered writes, 120 fps retention, remux hash identity, VP9 preservation,
+- `npm test` (23 tests): ordered writes, 120 fps retention, remux hash identity, VP9 preservation,
   duplicate stop, write failures, export overwrite rejection, continuous audio timestamps and
   clock drift; stored-settings and hotkey validation; GPU support, crops and capture graphs;
   every AMF/QSV/MF option present in the bundled encoders; three titled tracks with identical

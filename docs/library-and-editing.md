@@ -19,9 +19,12 @@ folder and look like a recording (a session folder only where the action allows 
 protocol and the trash, copy, export and trim handlers all go through it.
 
 Thumbnails and probe facts load when a card scrolls into view (`media-details`), two at a time.
-The trimmed FFmpeg has no image encoder, so one frame at 10% of the duration is decoded to raw
-BGRA over a pipe (`grabFrame`, `rawvideo` muxer) and turned into a JPEG with `nativeImage`. The
-result is cached in `userData/thumbnails`, keyed by path, size and modification time.
+The trimmed FFmpeg has no image encoder, so the keyframe at or before 10% of the duration is
+decoded to raw BGRA over a pipe (`grabFrame`, `rawvideo` muxer) and turned into a JPEG with
+`nativeImage`. The result is cached in `userData/thumbnails`, keyed by path, size and modification
+time; cached cards skip the two-at-a-time queue. Keep `-fps_mode passthrough` in `grabFrame`: without
+it FFmpeg's frame-rate sync discards frames before the seek point, so `-noaccurate_seek` and
+`-skip_frame nokey` stop returning the earlier keyframe and scrubbing near the end finds no frame.
 
 After a UI-started stop the panel opens with the new file outlined. Hotkey stops stay in the game
 and show a toast. Explorer is no longer opened on every save; Show in folder is a card action.

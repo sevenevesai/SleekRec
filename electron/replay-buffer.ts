@@ -68,7 +68,7 @@ export class ReplayBuffer {
   async start(): Promise<void> {
     await fs.mkdir(this.folder, { recursive: true })
     const capture = await CaptureProcess.start({ target: this.target, settings: this.settings,
-      fps: this.info.targetFps, launcher: this.launcher, pacing: new FramePacingMeter(),
+      fps: this.info.targetFps, launcher: this.launcher,
       // One-second GOPs let a segment close within about a second of its target length.
       gopSeconds: 1,
       output: ['-f', 'segment', '-segment_time', String(SEGMENT_SECONDS), '-segment_format', 'matroska',

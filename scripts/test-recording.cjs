@@ -454,6 +454,20 @@ test('fast trims start on the keyframe before the in point without re-encoding; 
   await assert.rejects(trimRecording(source, exact, 2.4, 4, 'exact'), /already exists/)
   const frame = await grabFrame(source, 1, 64, 36)
   assert.equal(frame.length, 64 * 36 * 4)
+  // Scrubbing shows the keyframe at or before the time, right up to the end of the file.
+  assert.ok(frame.equals(await grabFrame(source, 1.9, 64, 36)))
+  assert.ok(!frame.equals(await grabFrame(source, 2, 64, 36)))
+  assert.ok((await grabFrame(source, 4.99, 64, 36)).equals(await grabFrame(source, 4, 64, 36)))
+})
+
+test('NVENC keeps P4 through 1440p165 and takes its fastest preset above it', () => {
+  const preset = (quality, pixels) => {
+    const args = captureEncoderArgs('nvenc', { nativeCodec: 'h264', qualityPreset: quality }, 165, pixels)
+    return args[args.indexOf('-preset') + 1]
+  }
+  assert.equal(preset('medium', 2560 * 1440 * 165), 'p4')
+  assert.equal(preset('medium', 3840 * 2160 * 120), 'p1')
+  assert.equal(preset('ultra', 1920 * 1080 * 60), 'p1')
 })
 
 test('fit-to-size picks a legible size and frame rate and lands under the target', async () => {

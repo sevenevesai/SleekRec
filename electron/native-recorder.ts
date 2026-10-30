@@ -71,7 +71,8 @@ export interface CaptureProcessOptions {
   output: string[]
   gopSeconds?: number
   launcher?: string
-  pacing: FramePacingMeter
+  /** Live per-frame timestamps; replay leaves this out and measures each save's packets instead. */
+  pacing?: FramePacingMeter
   onProgress: (progress: CaptureProgress) => void
   /** Called when FFmpeg exits or the audio pipe fails without a stop; `error` is unset for a clean exit. */
   onUnexpectedExit: (error?: Error) => void
@@ -128,7 +129,7 @@ export class CaptureProcess {
       ...titles.flatMap((_, i) => ['-map', `0:a:${i}`]),
       ...(titles.length ? ['-c:a', 'aac', '-b:a', preset.audioBitrate, '-af', pcmAudioFilter, ...audioTrackArgs(titles)] : ['-an']),
       ...captureEncoderArgs(target.family, settings, fps, pixels * fps, options.gopSeconds),
-      ...framePacingArgs, ...options.output]
+      ...(options.pacing ? framePacingArgs : []), ...options.output]
     const child = options.launcher
       ? spawn(options.launcher, ['--run', String(process.pid), ffmpegBinary, ...args], { windowsHide: true })
       : spawn(ffmpegBinary, args, { windowsHide: true })
@@ -172,7 +173,7 @@ export class CaptureProcess {
       const lines = partial.split('\n')
       partial = lines.pop() || ''
       for (const line of lines) {
-        if (options.pacing.line(line)) continue
+        if (options.pacing?.line(line)) continue
         const split = line.indexOf('=')
         if (split < 0) continue
         const key = line.slice(0, split)

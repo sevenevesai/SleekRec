@@ -138,10 +138,10 @@ function MainApp() {
     const ref = resumeReplayRef.current
     resumeReplayRef.current = null
     if (!ref) return
-    const source = findSource(await refreshSources().catch(() => []), ref)
+    const source = findSource(await window.electronAPI.getSources(false).catch(() => []), ref)
     if (source) await armRef.current(source, { region: ref.region, windowArea: ref.windowArea }, true)
     else window.electronAPI.toast(`Instant replay stayed off: ${ref.name} is not available`, 'error')
-  }, [refreshSources])
+  }, [])
 
   const handleStop = useCallback(async () => {
     if (operationRef.current) { stopRequestedRef.current = true; return }
@@ -233,14 +233,15 @@ function MainApp() {
       window.electronAPI.restore()
       return
     }
-    const source = findSource(await refreshSources().catch(() => []), ref)
+    // No thumbnails, and no setSources: the picker keeps its list, and the game keeps the frame time.
+    const source = findSource(await window.electronAPI.getSources(false).catch(() => []), ref)
     if (!source) {
       window.electronAPI.toast(`${ref.name} is not available. Open SleekRec to choose a source.`, 'error')
       window.electronAPI.restore()
       return
     }
     await startRef.current(source, { region: ref.region, windowArea: ref.windowArea }, 'hotkey')
-  }, [refreshSources])
+  }, [])
 
   const handleReplayToggle = useCallback(async () => {
     if (replayRef.current) {
@@ -249,14 +250,14 @@ function MainApp() {
       return
     }
     const ref = settingsRef.current.lastSource
-    const source = ref && findSource(await refreshSources().catch(() => []), ref)
+    const source = ref && findSource(await window.electronAPI.getSources(false).catch(() => []), ref)
     if (!ref || !source) {
       window.electronAPI.toast('Turn on instant replay from a GPU screen in SleekRec first.', 'error')
       window.electronAPI.restore()
       return
     }
     await armRef.current(source, { region: ref.region, windowArea: ref.windowArea }, true)
-  }, [disarmReplay, refreshSources])
+  }, [disarmReplay])
 
   useEffect(() => {
     let alive = true
@@ -421,8 +422,10 @@ function MainApp() {
       setView('record')
       intervalRef.current = setInterval(() => {
         const elapsed = elapsedRef.current + (isPausedRef.current ? 0 : performance.now() - sinceRef.current)
-        timerRef.current = Math.floor(elapsed / 1000)
-        setTimer(timerRef.current)
+        const seconds = Math.floor(elapsed / 1000)
+        if (seconds === timerRef.current) return
+        timerRef.current = seconds
+        setTimer(seconds)
         syncTimer()
       }, 500)
       window.electronAPI.showOverlay()

@@ -13,7 +13,7 @@ declare global {
   type QualityPresetConfig = Preset
   interface Window {
     electronAPI: {
-      getSources: () => Promise<CaptureSource[]>
+      getSources: (thumbnails?: boolean) => Promise<CaptureSource[]>
       nativeCapabilities: () => Promise<NativeCapabilities>
       prepareNative: (sourceId: string, options?: NativeOptions) => Promise<{ id: string; info: CaptureInfo }>
       nativeReady: (id: string) => Promise<void>

@@ -256,11 +256,16 @@ export async function trimRecording(input: string, output: string, start: number
   return { start: from, end }
 }
 
-/** One decoded frame as BGRA pixels, for thumbnails and the scrubber of unplayable masters. */
-export async function grabFrame(input: string, seconds: number, width: number, height: number, accurate = true): Promise<Buffer> {
+/**
+ * The keyframe at or before `seconds` as BGRA pixels, for thumbnails and the scrubber of unplayable
+ * masters. Without passthrough, frame-rate sync discards decoded frames before the seek point and
+ * -noaccurate_seek still decodes up to it; with it, one keyframe is decoded (45 ms, not 400 ms).
+ */
+export async function grabFrame(input: string, seconds: number, width: number, height: number): Promise<Buffer> {
   const chunks: Buffer[] = []
-  await runFfmpeg([...(accurate ? [] : ['-noaccurate_seek']), '-ss', Math.max(0, seconds).toFixed(3), '-i', input,
-    '-map', '0:v:0', '-frames:v', '1', '-vf', `scale=${width}:${height}:flags=bilinear,format=bgra`, '-f', 'rawvideo', 'pipe:1'],
+  await runFfmpeg(['-noaccurate_seek', '-skip_frame', 'nokey', '-threads', '1', '-ss', Math.max(0, seconds).toFixed(3), '-i', input,
+    '-map', '0:v:0', '-frames:v', '1', '-fps_mode', 'passthrough', '-vf', `scale=${width}:${height}:flags=bilinear,format=bgra`,
+    '-f', 'rawvideo', 'pipe:1'],
   15000, data => chunks.push(data))
   const frame = Buffer.concat(chunks)
   if (frame.length !== width * height * 4) throw new Error('No frame at this position')

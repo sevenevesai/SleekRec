@@ -24,7 +24,7 @@ const fps = byId('fps')
 window.electronAPI.onTimerUpdate(data => {
   byId('timer').textContent = formatTime(data.timer)
   toggle(byId('dot'), 'bg-yellow-500', data.isPaused)
-  toggle(byId('dot'), 'bg-red-500 animate-pulse', !data.isPaused)
+  toggle(byId('dot'), 'bg-red-500', !data.isPaused)
   pause.title = data.isPaused ? 'Resume' : 'Pause'
   toggle(byId('pause-icon'), 'hidden', data.isPaused)
   toggle(byId('resume-icon'), 'hidden', !data.isPaused)

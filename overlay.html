@@ -10,7 +10,8 @@
   <body class="text-white overflow-hidden">
     <div class="h-screen w-full flex items-center justify-between px-4 bg-surface/95 rounded-xl border border-gray-700/50 draggable">
       <div class="flex items-center gap-3">
-        <div id="dot" class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
+        <!-- No animation: this window floats over the game, and a pulse repaints it at display refresh. -->
+        <div id="dot" class="w-3 h-3 rounded-full bg-red-500"></div>
         <div>
           <span id="timer" class="text-white font-mono text-xl tracking-wider">0:00</span>
           <div id="fps" class="text-xs text-gray-400 hidden"></div>

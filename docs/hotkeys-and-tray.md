@@ -25,8 +25,8 @@ typed does not fire.
 ## Remembered source
 
 Every start from the picker, and every replay arm, stores a `SourceRef` (`lastSource`): the
-desktopCapturer ID, a label, and the region or window-area flag. A hotkey or tray start refreshes
-the sources and looks it up by ID; a window whose handle changed (the app restarted) matches only
+desktopCapturer ID, a label, and the region or window-area flag. A hotkey or tray start lists the
+sources without thumbnails and looks it up by ID; a window whose handle changed (the app restarted) matches only
 a unique exact title. When nothing matches, a toast says so and the window opens. A hotkey never
 picks a different source.
 

@@ -63,10 +63,13 @@ export function captureEncoderArgs(family: EncoderFamily, settings: Pick<AppSett
   const timing = ['-fps_mode', 'passthrough', '-enc_time_base', '1:1000']
   if (family === 'nvenc') {
     const ultra = settings.qualityPreset === 'ultra'
+    // P4 measured about 890 Mpix/s on an RTX 2080 Ti, P1 over 1000: above 1440p165 (608 Mpix/s)
+    // keeping real time beats file size. At constant QP the preset barely changes visible quality.
+    const fastest = ultra || pixelsPerSecond > 2560 * 1440 * 165
     // Leave RGB-to-YUV color signaling to NVENC. Its BGRA conversion uses a
     // BT.601 matrix; overriding the tags to BT.709 changes decoded colors.
     return ['-c:v', encoderName(family, settings.nativeCodec),
-      '-preset', ultra ? 'p1' : 'p4', '-tune', ultra ? 'lossless' : 'hq',
+      '-preset', fastest ? 'p1' : 'p4', '-tune', ultra ? 'lossless' : 'hq',
       '-rc', 'constqp', '-qp', qp, '-rgb_mode', ultra ? 'yuv444' : 'yuv420', '-multipass', 'disabled',
       // Two frames in flight overlap capture and encoding. Delay zero forces a
       // synchronous bitstream wait for each frame despite allocating 8 surfaces.
