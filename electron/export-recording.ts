@@ -154,7 +154,10 @@ function fitVideo(encoder: ExportEncoder, bitrate: number): string[] {
       '-bf', '2', '-pix_fmt', 'nv12']
     case 'qsv': return ['-c:v', 'h264_qsv', '-preset', 'slow', '-b:v', b, '-maxrate', max, '-bufsize', buf, '-bf', '2', '-pix_fmt', 'nv12']
     case 'mf': return ['-c:v', 'h264_mf', '-hw_encoding', '1', '-rate_control', 'pc_vbr', '-b:v', b, '-profile:v', '100', '-pix_fmt', 'nv12']
-    case 'x264': return ['-c:v', 'libx264', '-preset', 'medium', '-b:v', b, '-maxrate', max, '-bufsize', buf, '-pix_fmt', 'yuv420p']
+    // Both passes must encode the same frames, or x264 aborts with "Incomplete MB-tree stats file".
+    // FFmpeg's automatic sync differs between the null and MP4 muxers; the fps filter already made it constant rate.
+    case 'x264': return ['-c:v', 'libx264', '-preset', 'medium', '-b:v', b, '-maxrate', max, '-bufsize', buf, '-pix_fmt', 'yuv420p',
+      '-fps_mode', 'passthrough']
   }
 }
 
