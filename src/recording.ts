@@ -59,6 +59,33 @@ export const defaultHotkeys: Hotkeys = {
   replayToggle: '',
 }
 
+const hotkeyModifiers = new Set(['Command', 'Cmd', 'Control', 'Ctrl', 'CommandOrControl', 'CmdOrCtrl', 'Alt',
+  'Option', 'AltGr', 'Shift', 'Super', 'Meta'])
+const namedHotkeys = new Set(['Plus', 'Space', 'Tab', 'Capslock', 'Numlock', 'Scrolllock', 'Backspace', 'Delete',
+  'Insert', 'Return', 'Enter', 'Up', 'Down', 'Left', 'Right', 'Home', 'End', 'PageUp', 'PageDown', 'Escape', 'Esc',
+  'VolumeUp', 'VolumeDown', 'VolumeMute', 'MediaNextTrack', 'MediaPreviousTrack', 'MediaStop', 'MediaPlayPause',
+  'PrintScreen', 'numdec', 'numadd', 'numsub', 'nummult', 'numdiv'])
+
+/**
+ * Accepts Electron accelerators that make sense as global hotkeys. Letters, digits and
+ * punctuation need a modifier, or the hotkey would swallow that key in every other app;
+ * function, media and Print Screen keys may stand alone.
+ */
+export function isValidHotkey(accelerator: string): boolean {
+  const parts = accelerator.split('+')
+  const key = parts.pop()
+  if (!key || parts.some(part => !hotkeyModifiers.has(part)) || new Set(parts).size !== parts.length) return false
+  const standalone = /^F([1-9]|1\d|2[0-4])$/.test(key) || /^(Media|Volume)/.test(key) || key === 'PrintScreen'
+  const valid = standalone || /^[A-Z0-9]$/.test(key) || /^num[0-9]$/.test(key) || namedHotkeys.has(key) ||
+    /^[)!@#$%^&*(:;"'<>?~`{}|\\[\]=,\-./_]$/.test(key)
+  return valid && (standalone || parts.length > 0)
+}
+
+/** An error's own words, without the prefixes Electron adds on the way across IPC. */
+export function errorMessage(error: unknown): string {
+  return String(error).replace(/^Error: (Error invoking remote method '[^']+': )?(Error: )?/, '')
+}
+
 export const qualityPresets = {
   low: { qp: 28, bitsPerPixel: 0.07, audioBitrate: '96k', audioChannels: 1, audioSampleRate: 44100 },
   medium: { qp: 23, bitsPerPixel: 0.12, audioBitrate: '160k', audioChannels: 2, audioSampleRate: 48000 },

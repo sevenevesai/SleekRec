@@ -64,7 +64,9 @@ supported:
 
 The README says capture and system audio on macOS and Linux are unverified. First, run the
 browser path on macOS 13+ and Ubuntu LTS, confirm whether Electron's loopback audio works on
-macOS, and mark the install table rows "beta" until then. Then a native macOS engine: a Swift
+macOS, and mark the install table rows "beta" until then. Also check the Linux tray: on a GNOME
+desktop without AppIndicator, **Start minimized** and **Keep running in the tray** would leave no
+way back to the window except launching again. Then a native macOS engine: a Swift
 helper on ScreenCaptureKit (video and system audio) piping to FFmpeg's `h264_videotoolbox`,
 under the same file, stop and sidecar contracts as Windows. Linux stays on the browser engine;
 PipeWire is the only Wayland route and is not worth a native engine yet. Region capture,

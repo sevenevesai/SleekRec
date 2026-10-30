@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { LibraryEntry, MediaDetails } from './recording'
+import { LibraryEntry, MediaDetails, errorMessage } from './recording'
 import { formatBytes } from './RecordingsPanel'
 
 const mediaUrl = (file: string) => `sleekrec-media://recording/${encodeURIComponent(file)}`
@@ -36,7 +36,7 @@ export function TrimEditor({ entry, details, onClose, onSaved, onError }: {
   const duration = info?.seconds || entry.seconds || 0
 
   useEffect(() => {
-    if (!info) window.electronAPI.mediaDetails(entry.path).then(setInfo).catch(error => onError(String(error)))
+    if (!info) window.electronAPI.mediaDetails(entry.path).then(setInfo).catch(error => onError(errorMessage(error)))
     window.electronAPI.mediaKeyframes(entry.path).then(setKeyframes).catch(() => setKeyframes([]))
   }, [entry.path])
   useEffect(() => { if (duration && !range) setRange([0, duration]) }, [duration])
@@ -103,7 +103,7 @@ export function TrimEditor({ entry, details, onClose, onSaved, onError }: {
     setSaving(true)
     window.electronAPI.trimRecording(entry.path, range[0], range[1], mode)
       .then(output => onSaved(output))
-      .catch(error => { onError(String(error)); setSaving(false) })
+      .catch(error => { onError(errorMessage(error)); setSaving(false) })
   }
 
   const pct = (t: number) => `${duration ? t / duration * 100 : 0}%`
@@ -190,7 +190,7 @@ export function TrimEditor({ entry, details, onClose, onSaved, onError }: {
         <span className="text-xs text-gray-400 tabular-nums mr-auto">
           Keeps {clock(selection)}{estimate ? ` · about ${formatBytes(estimate)}` : ''} · saved as a new file next to the original
         </span>
-        <button className="rounded-lg bg-gray-700 hover:bg-gray-600 px-4 py-2 text-sm" disabled={saving} onClick={onClose}>Cancel</button>
+        <button className="rounded-lg bg-gray-700 hover:bg-gray-600 px-4 py-2 text-sm" onClick={() => { if (saving) void window.electronAPI.cancelJob(); else onClose() }}>Cancel</button>
         <button className="rounded-lg bg-primary hover:bg-primary/80 text-black font-medium px-4 py-2 text-sm disabled:opacity-40"
           disabled={!range || saving || (mode === 'fast' && keyframes === null)} onClick={save}>{saving ? 'Saving…' : 'Save trim'}</button>
       </div>

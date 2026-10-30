@@ -53,7 +53,10 @@ export class CaptureAudio {
           echoCancellation: !raw, noiseSuppression: !raw, autoGainControl: !raw,
           sampleRate: preset.audioSampleRate, channelCount: preset.audioChannels,
           ...(settings.micDeviceId ? { deviceId: { exact: settings.micDeviceId } } : {}),
-        } })
+        } }).catch((error: DOMException) => {
+          // An unplugged device raises OverconstrainedError, whose message is empty.
+          throw new Error(`The microphone is unavailable (${error.name}). Choose another in Settings, or turn Microphone off.`)
+        })
         this.streams.push(mic)
         this.micGain = ctx.createGain()
         this.micGain.gain.value = settings.micVolume

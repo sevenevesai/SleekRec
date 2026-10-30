@@ -11,6 +11,10 @@ if (!process.versions.electron) {
   const child = spawn(require('electron'), [__filename], { env, windowsHide: true, stdio: 'inherit' })
   child.on('error', error => { console.error(error); process.exitCode = 1 })
   child.on('close', code => { process.exitCode = code || 0 })
+} else if (process.env.SLEEK_SMOKE_PROFILE) {
+  // The second launch below: the single-instance lock must end this process without side effects.
+  require('electron').app.setPath('userData', process.env.SLEEK_SMOKE_PROFILE)
+  require(path.join(root, 'dist-electron/main.js'))
 } else {
   const { app, BrowserWindow, shell } = require('electron')
   const directory = path.join(root, '.test-output', `smoke-${Date.now()}`)
@@ -95,6 +99,11 @@ if (!process.versions.electron) {
     await sleep(1500)
     main = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('index.html') || window.webContents.getURL().endsWith('/'))
     assert.ok(main)
+    const page = main.webContents.getURL()
+    await js(`location.href = 'https://example.com/'`)
+    await sleep(500)
+    assert.equal(main.webContents.getURL(), page, 'No page may navigate away')
+    assert.equal(await js(`window.open('https://example.com/')`), null, 'No page may open a window')
     await start('GPU capture')
     console.log('Native capture + system audio started')
     const intervals = Math.max(1, Math.ceil(Number(process.env.SLEEK_SMOKE_SECONDS || 60) / 10))
@@ -116,7 +125,11 @@ if (!process.versions.electron) {
     const joined = await stop()
 
     // A medium master becomes an MP4 on stop; separate tracks add game and microphone tracks.
-    await api(`saveSettings({qualityPreset:'medium',micEnabled:true,micTrack:'separate'})`)
+    await api(`saveSettings({qualityPreset:'medium',micEnabled:true,micTrack:'separate',micDeviceId:'unplugged'})`)
+    main.reload()
+    await sleep(2000)
+    await assert.rejects(start('GPU capture'), /microphone is unavailable/, 'A missing microphone says so')
+    await api(`saveSettings({micDeviceId:''})`)
     main.reload()
     await sleep(2000)
     await start('GPU capture')
@@ -139,6 +152,10 @@ if (!process.versions.electron) {
     main.webContents.send('hotkey-replay-toggle')
     await until(text => text.includes('buffered'))
     await sleep(7000)
+    const secondLaunch = require('node:child_process').spawn(process.execPath, [__filename], {
+      env: { ...process.env, SLEEK_SMOKE_PROFILE: profile }, windowsHide: true, stdio: 'ignore' })
+    await new Promise(resolve => secondLaunch.on('close', resolve))
+    assert.notDeepEqual(fs.readdirSync(path.join(directory, '.sleekrec-replay')), [], 'A second launch leaves the armed replay alone')
     const replay = await api('replaySave()')
     console.log(JSON.stringify({ replay: replay.path, seconds: replay.stats.seconds }))
     main.webContents.send('hotkey-replay-toggle')

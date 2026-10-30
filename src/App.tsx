@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { CaptureAudio } from './capture-audio'
 import { CaptureSource, CaptureInfo, CaptureRegion, JobProgress, LibraryEntry, MediaDetails, NativeCapabilities, RecordingStats,
   SavedRecording, SourceRef, captureBitrate, captureEngineForSource, defaultHotkeys, encoderLabels, gpuSupport, qualityPresets,
-  requestedFps } from './recording'
+  errorMessage, requestedFps } from './recording'
 import { SettingsModal, formatSeconds, hotkeyLabel } from './SettingsModal'
 import { RecordingsPanel, formatBytes } from './RecordingsPanel'
 import { TrimEditor } from './TrimEditor'
@@ -40,7 +40,7 @@ function findSource(sources: CaptureSource[], ref: SourceRef): CaptureSource | u
   return matches.length === 1 ? matches[0] : undefined
 }
 
-const message = (error: unknown) => String(error).replace(/^Error: (Error invoking remote method '[^']+': )?(Error: )?/, '')
+const STILL_BUSY = 'SleekRec is still busy. Try again in a moment.'
 
 function MainApp() {
   const [sources, setSources] = useState<CaptureSource[]>([])
@@ -107,7 +107,7 @@ function MainApp() {
   }, [])
   const saveSettings = useCallback(async (changes: Partial<AppSettings>) => {
     try { setSettings(await window.electronAPI.saveSettings(changes)) }
-    catch (e) { setError(message(e)) }
+    catch (e) { setError(errorMessage(e)) }
   }, [])
   const refreshSources = useCallback(async (): Promise<CaptureSource[]> => {
     const list = await window.electronAPI.getSources()
@@ -125,7 +125,7 @@ function MainApp() {
     replayAudioRef.current = null
     const done = (async () => {
       // FFmpeg must handle q while PCM still flows, as with a paused segment.
-      await window.electronAPI.replayDisarm(current.id).catch(e => setError(`Instant replay: ${message(e)}`))
+      await window.electronAPI.replayDisarm(current.id).catch(e => setError(`Instant replay: ${errorMessage(e)}`))
       await audio?.pausePCM()
       audio?.close()
     })()
@@ -167,7 +167,7 @@ function MainApp() {
         window.electronAPI.toast(`Recording saved · ${formatSeconds(result.stats?.seconds ?? 0)} · ${formatBytes(result.stats?.bytes ?? 0)}`)
       } else setView('recordings')
     } catch (e) {
-      setError(`Could not finish recording: ${message(e)}. Any recoverable parts remain in the output folder.`)
+      setError(`Could not finish recording: ${errorMessage(e)}. Any recoverable parts remain in the output folder.`)
       if (session.origin === 'hotkey') window.electronAPI.toast('Recording could not be saved. Open SleekRec for details.', 'error')
       await window.electronAPI.abortRecording().catch(() => {})
     } finally {
@@ -208,7 +208,7 @@ function MainApp() {
       setIsPaused(isPausedRef.current)
       syncTimer()
     } catch (e) {
-      setError(message(e))
+      setError(errorMessage(e))
       stopRequestedRef.current = true
     } finally {
       setBusy('')
@@ -226,7 +226,7 @@ function MainApp() {
 
   const handleHotkeyRecord = useCallback(async () => {
     if (sessionRef.current) { void stopRef.current(); return }
-    if (operationRef.current) return
+    if (operationRef.current) { window.electronAPI.toast(STILL_BUSY, 'error'); return }
     const ref = settingsRef.current.lastSource
     if (!ref) {
       window.electronAPI.toast('Start one recording from SleekRec first; the hotkey then records that source.', 'error')
@@ -249,6 +249,8 @@ function MainApp() {
       window.electronAPI.toast('Instant replay off')
       return
     }
+    if (sessionRef.current) { window.electronAPI.toast('Instant replay cannot turn on during a recording.', 'error'); return }
+    if (operationRef.current) { window.electronAPI.toast(STILL_BUSY, 'error'); return }
     const ref = settingsRef.current.lastSource
     const source = ref && findSource(await window.electronAPI.getSources(false).catch(() => []), ref)
     if (!ref || !source) {
@@ -275,8 +277,9 @@ function MainApp() {
           autoArmed = true
           const source = findSource(list, s.lastSource)
           if (source) void armRef.current(source, { region: s.lastSource.region, windowArea: s.lastSource.windowArea }, true)
+          else window.electronAPI.toast(`Instant replay stayed off: ${s.lastSource.name} is not available.`, 'error')
         }
-      }).catch(e => { if (alive) setError(message(e)) })
+      }).catch(e => { if (alive) setError(errorMessage(e)) })
     }
     // Sources load on mount, on demand and on focus, never on a timer: each refresh spawns the
     // native helper twice. backgroundThrottling: false disables the Page Visibility API, hence focus.
@@ -287,7 +290,7 @@ function MainApp() {
       setSettings(s)
       setLoaded(true)
       refresh()
-    }).catch(e => { setError(message(e)); refresh() })
+    }).catch(e => { setError(errorMessage(e)); refresh() })
     window.addEventListener('focus', refreshOnFocus)
     return () => { alive = false; window.removeEventListener('focus', refreshOnFocus) }
   }, [])
@@ -432,9 +435,9 @@ function MainApp() {
       syncTimer()
       if (origin === 'hotkey') window.electronAPI.toast(`Recording ${sourceLabel(source, options)}`)
     } catch (e) {
-      setError(message(e))
+      setError(errorMessage(e))
       if (origin === 'hotkey') {
-        window.electronAPI.toast(`Recording did not start: ${message(e).split('\n')[0]}`, 'error')
+        window.electronAPI.toast(`Recording did not start: ${errorMessage(e).split('\n')[0]}`, 'error')
         window.electronAPI.restore()
       }
       await window.electronAPI.abortRecording().catch(() => {})
@@ -475,7 +478,7 @@ function MainApp() {
       rememberSource(source, options)
       if (quiet) window.electronAPI.toast(`Instant replay on · ${hotkeyLabel(settingsRef.current.hotkeys.replaySave) || 'tray menu'} saves`)
     } catch (e) {
-      setError(`Instant replay did not start: ${message(e)}`)
+      setError(`Instant replay did not start: ${errorMessage(e)}`)
       if (quiet) window.electronAPI.toast('Instant replay did not start. Open SleekRec for details.', 'error')
       if (armedId) await window.electronAPI.replayDisarm(armedId).catch(() => {})
       audio.close()
@@ -493,7 +496,7 @@ function MainApp() {
       if (!region) return
       if (then === 'record') await handleStart(source, { region })
       else await armReplay(source, { region })
-    } catch (e) { setError(message(e)) }
+    } catch (e) { setError(errorMessage(e)) }
   }
 
   const formatTime = (seconds: number) => `${Math.floor(seconds / 3600).toString().padStart(2, '0')}:${Math.floor(seconds % 3600 / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
@@ -512,7 +515,7 @@ function MainApp() {
       {!isRecording && <nav role="tablist" className="flex gap-1 rounded-lg bg-surface p-1">{tab('record', 'Record')}{tab('recordings', 'Recordings')}</nav>}
       {!isRecording && <div className="flex gap-2">
         {view === 'record' && <button className={buttonStyle} disabled={!!busy || !loaded} onClick={() => {
-          void refreshSources().catch(e => setError(message(e)))
+          void refreshSources().catch(e => setError(errorMessage(e)))
         }}>Refresh sources</button>}
         <button className={buttonStyle} disabled={!!busy || !loaded} onClick={() => setShowSettings(true)}>Settings</button>
       </div>}
@@ -535,7 +538,7 @@ function MainApp() {
         <span className="text-xs text-gray-500">{keys.replaySave ? `${hotkeyLabel(keys.replaySave)} saves` : 'Set a save hotkey in Settings'}</span>
         <span className="flex-1" />
         <button className="clickable rounded-md bg-secondary/15 px-3 py-1.5 text-secondary hover:bg-secondary/25" onClick={() => {
-          void window.electronAPI.replaySave().catch(e => setError(message(e)))
+          void window.electronAPI.replaySave().catch(e => setError(errorMessage(e)))
         }}>Save replay</button>
         <button className="clickable rounded-md px-3 py-1.5 text-gray-400 hover:text-white" onClick={() => { void disarmReplay() }}>Turn off</button>
       </div>}

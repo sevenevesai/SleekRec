@@ -1,29 +1,7 @@
 import path from 'node:path'
-import { AppSettings, HotkeyAction, Hotkeys, SourceRef, defaultHotkeys, replayLengths } from '../src/recording'
+import { AppSettings, HotkeyAction, Hotkeys, SourceRef, defaultHotkeys, isValidHotkey, replayLengths } from '../src/recording'
 
 // Kept free of Electron imports so scripts/test-recording.cjs can check stored-settings handling.
-
-const modifiers = new Set(['Command', 'Cmd', 'Control', 'Ctrl', 'CommandOrControl', 'CmdOrCtrl', 'Alt',
-  'Option', 'AltGr', 'Shift', 'Super', 'Meta'])
-const namedKeys = new Set(['Plus', 'Space', 'Tab', 'Capslock', 'Numlock', 'Scrolllock', 'Backspace', 'Delete',
-  'Insert', 'Return', 'Enter', 'Up', 'Down', 'Left', 'Right', 'Home', 'End', 'PageUp', 'PageDown', 'Escape', 'Esc',
-  'VolumeUp', 'VolumeDown', 'VolumeMute', 'MediaNextTrack', 'MediaPreviousTrack', 'MediaStop', 'MediaPlayPause',
-  'PrintScreen', 'numdec', 'numadd', 'numsub', 'nummult', 'numdiv'])
-
-/**
- * Accepts Electron accelerators that make sense as global hotkeys. Letters, digits and
- * punctuation need a modifier, or the hotkey would swallow that key in every other app;
- * function, media and Print Screen keys may stand alone.
- */
-export function isValidHotkey(accelerator: string): boolean {
-  const parts = accelerator.split('+')
-  const key = parts.pop()
-  if (!key || parts.some(part => !modifiers.has(part)) || new Set(parts).size !== parts.length) return false
-  const standalone = /^F([1-9]|1\d|2[0-4])$/.test(key) || /^(Media|Volume)/.test(key) || key === 'PrintScreen'
-  const valid = standalone || /^[A-Z0-9]$/.test(key) || /^num[0-9]$/.test(key) || namedKeys.has(key) ||
-    /^[)!@#$%^&*(:;"'<>?~`{}|\\[\]=,\-./_]$/.test(key)
-  return valid && (standalone || parts.length > 0)
-}
 
 function normalizeHotkeys(input: unknown): Hotkeys {
   const result = { ...defaultHotkeys }

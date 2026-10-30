@@ -119,6 +119,7 @@ function saveSettings(settings: Partial<AppSettings>): AppSettings {
 /** Side effects of settings outside the renderer: hotkeys, the login item and the tray. */
 function applySettings(settings: AppSettings) {
   hotkeyStatus = applyHotkeys(settings.hotkeys, hotkeyHandlers)
+  if (Object.keys(hotkeyStatus).length) toast('A hotkey is in use by another app. Choose another in Settings.', 'error', 6000)
   // A development build would register electron.exe itself at login.
   if (app.isPackaged && process.platform !== 'linux') {
     app.setLoginItemSettings({ openAtLogin: settings.launchAtLogin, args: ['--hidden'] })
@@ -126,12 +127,15 @@ function applySettings(settings: AppSettings) {
   updateTray(settings)
 }
 
-const hotkeyHandlers: Record<HotkeyAction, () => void> = {
+const hotkeyHandlers: Partial<Record<HotkeyAction, () => void>> = {
   record: () => send('hotkey-record'),
   stop: () => send('stop-recording'),
   pause: () => send('pause-recording'),
-  replaySave: () => { void saveReplay().catch(() => {}) }, // saveReplay reports failures in a toast.
-  replayToggle: () => send('hotkey-replay-toggle'),
+  // Replay needs the GPU engine; elsewhere these would only hold keys and report a dead end.
+  ...(process.platform === 'win32' && {
+    replaySave: () => { void saveReplay().catch(() => {}) }, // saveReplay reports failures in a toast.
+    replayToggle: () => send('hotkey-replay-toggle'),
+  }),
 }
 
 function updateTray(settings = loadSettings()) {
@@ -417,11 +421,20 @@ function registerMediaProtocol() {
   })
 }
 
-if (!app.requestSingleInstanceLock()) {
+const primaryInstance = app.requestSingleInstanceLock()
+if (!primaryInstance) {
   app.quit()
 } else {
   app.on('second-instance', () => showMainWindow())
 }
+
+// Every page is local and gets the preload's IPC, so none may leave for or open anything else.
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('will-navigate', (event, url) => {
+    if (!VITE_DEV_SERVER_URL || !url.startsWith(VITE_DEV_SERVER_URL)) event.preventDefault()
+  })
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+})
 
 app.on('window-all-closed', () => {
   win = null
@@ -431,6 +444,8 @@ app.on('window-all-closed', () => {
 app.on('activate', () => showMainWindow())
 
 app.whenReady().then(() => {
+  // app.quit() does not stop `ready`; going on would delete the running instance's replay buffer.
+  if (!primaryInstance) return
   registerMediaProtocol()
   updateOnQuit().catch(error => console.error('Update failed:', error))
   const settings = loadSettings()
@@ -817,13 +832,15 @@ function copyFiles(files: string[]): Promise<void> {
 }
 
 ipcMain.handle('recording-action', async (_event, file: unknown, action: string) => {
-  const target = libraryPath(outputFolder(), file, { folder: action === 'trash' })
+  const target = libraryPath(outputFolder(), file, { folder: action === 'trash' || action === 'reveal' })
   if (action === 'open') {
     const error = await shell.openPath(target)
     if (error) throw new Error(error)
   } else if (action === 'reveal') shell.showItemInFolder(target)
-  else if (action === 'copy') await copyFiles([target])
-  else if (action === 'trash') {
+  else if (action === 'copy') {
+    await copyFiles([target])
+    toast(process.platform === 'win32' ? 'Copied. Paste it into a chat or a folder.' : 'Copied the file path.')
+  } else if (action === 'trash') {
     await shell.trashItem(target)
     if (fs.existsSync(`${target}.json`)) await shell.trashItem(`${target}.json`)
     send('library-changed')
@@ -913,9 +930,11 @@ ipcMain.handle('recover-recording', async (_event, file: unknown) => {
   const info = await probeMedia(result.path)
   Object.assign(result.info, { width: info.video?.width ?? 0, height: info.video?.height ?? 0, codec: info.video?.codec ?? 'unknown' })
   result.stats = { frames: 0, fps: info.video?.fps ?? 0, seconds: info.seconds, bytes: fs.statSync(result.path).size, speed: 1 }
+  // The originals stay recoverable from the recycle bin. Failing to move them is no failed recovery.
+  await shell.trashItem(input).catch((error: Error) => {
+    result.warning = `${result.warning} The originals could not move to the recycle bin (${error.message}); they are safe to delete.`
+  })
   await fs.promises.writeFile(`${result.path}.json`, JSON.stringify(result, null, 2)).catch(() => {}) // Panel details only.
-  // The originals stay recoverable from the recycle bin.
-  await shell.trashItem(input)
   send('library-changed')
   return result
 })

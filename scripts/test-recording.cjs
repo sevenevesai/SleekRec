@@ -23,8 +23,8 @@ const { finalizeCapture, audioTrackArgs } = load('electron/finalize.ts', 'finali
 const { ReplayBuffer, REPLAY_DIRECTORY } = load('electron/replay-buffer.ts', 'replay')
 const { listLibrary, libraryPath, recoverUnfinished, uniqueOutput } = load('electron/library.ts', 'library')
 const { probeMedia, parseProbe } = load('electron/media-probe.ts', 'probe')
-const { normalizeSettings, isValidHotkey } = load('electron/settings.ts', 'stored-settings')
-const { captureEngineForSource, requestedFps, gpuSupport, clampRegion, audioTrackTitles, defaultHotkeys } =
+const { normalizeSettings } = load('electron/settings.ts', 'stored-settings')
+const { captureEngineForSource, requestedFps, gpuSupport, clampRegion, audioTrackTitles, defaultHotkeys, isValidHotkey } =
   load('src/recording.ts', 'settings')
 const helper = path.join(root, 'native', 'bin', 'windows-displays.exe')
 const settings = { outputFolder: output, qualityPreset: 'ultra' }
@@ -273,7 +273,8 @@ test('capture graphs crop on the GPU relative to the display, convert per vendor
 // AMD and Intel encoders cannot initialize on a machine without their GPUs, so verify that the
 // bundled FFmpeg recognizes every option SleekRec passes them. A renamed or missing option would
 // otherwise only surface on a user's AMD or Intel machine.
-test('every vendor encoder and filter option SleekRec passes exists in the bundled FFmpeg', async () => {
+test('every vendor encoder and filter option SleekRec passes exists in the bundled FFmpeg', async t => {
+  if (process.platform !== 'win32') { t.skip('GPU capture and its FFmpeg build are Windows-only'); return }
   const generic = new Set(['-c:v', '-g', '-bf', '-profile:v', '-q:v', '-b:v', '-colorspace', '-color_primaries', '-color_range',
     '-fps_mode', '-enc_time_base', '-force_key_frames', '-pix_fmt'])
   const known = async (kind, name) => {
@@ -421,6 +422,7 @@ test('the library lists recordings by kind, refuses paths outside the output fol
   const cancelled = new AbortController()
   cancelled.abort()
   await assert.rejects(recoverUnfinished(sessionFolder, cancelled.signal), /Cancelled/)
+  await assert.rejects(recoverUnfinished(clip), /Only unfinished/, 'recovery trashes its input, so a finished master is refused')
   assert.ok(!(await fs.readdir(folder)).some(name => name.includes('_recovered')), 'a cancelled recovery leaves no file')
   const recovered = await recoverUnfinished(libraryPath(folder, sessionFolder, { folder: true }))
   assert.match(recovered.path, /_recovered\.mkv$/)

@@ -38,7 +38,8 @@ and show a toast. Explorer is no longer opened on every save; Show in folder is 
   also draggable out of the window (`webContents.startDrag`).
 - **Recover** on an unfinished entry joins the parts (or remuxes a browser partial) into
   `_recovered.mkv|mp4`, tolerating a cut last cluster, then moves the originals to the recycle
-  bin, so they stay restorable. A session folder whose `.mp4`/`.mkv` already exists holds parts a
+  bin, so they stay restorable. It refuses a finished recording, which the move would discard. A
+  failed move becomes a warning on the recovered file. A session folder whose `.mp4`/`.mkv` already exists holds parts a
   save could not delete: it lists as leftover parts with Delete only.
 
 Exports, trims and recoveries run one at a time as jobs with progress and Cancel (an

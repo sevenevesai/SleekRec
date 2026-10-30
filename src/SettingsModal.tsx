@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { FrameRate, HotkeyAction, NativeCapabilities, ReplaySeconds, encoderLabels, replayLengths } from './recording'
+import { FrameRate, HotkeyAction, NativeCapabilities, ReplaySeconds, encoderLabels, isValidHotkey, replayLengths } from './recording'
 
 export const hotkeyNames: Record<HotkeyAction, string> = {
   record: 'Start or stop recording', stop: 'Stop and save', pause: 'Pause or resume',
@@ -31,8 +31,10 @@ function accelerator(event: React.KeyboardEvent): string | null {
 
 function HotkeyInput({ value, onChange, unavailable }: { value: string; onChange: (value: string) => void; unavailable: boolean }) {
   const [listening, setListening] = useState(false)
+  const [refused, setRefused] = useState(false)
   const stopListening = () => {
     setListening(false)
+    setRefused(false)
     void window.electronAPI.suspendHotkeys(false)
   }
   return <div className="flex items-center gap-2">
@@ -45,11 +47,12 @@ function HotkeyInput({ value, onChange, unavailable }: { value: string; onChange
         if (event.key === 'Escape') { stopListening(); return }
         if (event.key === 'Backspace' || event.key === 'Delete') { onChange(''); stopListening(); return }
         const combo = accelerator(event)
-        if (combo) { onChange(combo); stopListening() }
+        if (combo && !isValidHotkey(combo)) setRefused(true) // Saving would silently restore the default.
+        else if (combo) { onChange(combo); stopListening() }
       }}
       className={`min-w-44 rounded-lg px-3 py-1.5 text-sm text-left tabular-nums border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
         listening ? 'border-primary bg-primary/10 text-primary' : unavailable ? 'border-red-500/50 bg-gray-800 text-red-200' : 'border-gray-700 bg-gray-800 text-gray-200'}`}>
-      {listening ? 'Press keys…' : value ? hotkeyLabel(value) : 'Not set'}
+      {listening ? (refused ? 'Add Ctrl, Alt or Shift' : 'Press keys…') : value ? hotkeyLabel(value) : 'Not set'}
     </button>
     {value && !listening && <button type="button" onClick={() => onChange('')}
       className="text-xs text-gray-500 hover:text-gray-200 px-1" aria-label="Clear hotkey">Clear</button>}
@@ -175,6 +178,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: {
   ]
   const currentPreset = presets?.[local.qualityPreset]
   const adapters = capabilities?.adapters ?? []
+  const replayAvailable = capabilities?.available !== false
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={onClose}>
@@ -259,7 +263,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: {
             </div>}
           </Section>
 
-          <Section title="Instant replay">
+          {replayAvailable && <Section title="Instant replay">
             <label className="block text-sm text-gray-400">Keep the last</label>
             <select aria-label="Replay length" value={local.replaySeconds} className={selectStyle}
               onChange={e => set({ replaySeconds: Number(e.target.value) as ReplaySeconds })}>
@@ -267,11 +271,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: {
             </select>
             <Toggle checked={local.replayAutoArm} onChange={replayAutoArm => set({ replayAutoArm })}
               label="Turn on instant replay when SleekRec starts" detail="Uses the last GPU source you recorded or armed. Replay keeps only the last few minutes on disk." />
-          </Section>
+          </Section>}
 
           <Section title="Hotkeys">
             <p className="text-xs text-gray-500">Global: they work while a game has focus. Click a field and press the keys; Backspace clears it.</p>
-            {(Object.keys(hotkeyNames) as HotkeyAction[]).map(action => <div key={action} className="flex items-center justify-between gap-4">
+            {(Object.keys(hotkeyNames) as HotkeyAction[]).filter(action => replayAvailable || !action.startsWith('replay')).map(action => <div key={action} className="flex items-center justify-between gap-4">
               <span className="text-sm text-gray-300">{hotkeyNames[action]}</span>
               <HotkeyInput value={local.hotkeys[action]} unavailable={!!hotkeyStatus[action] && local.hotkeys[action] === settings.hotkeys[action]}
                 onChange={value => setLocal(prev => ({ ...prev, hotkeys: { ...prev.hotkeys, [action]: value } }))} />
@@ -282,8 +286,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: {
             <Toggle checked={local.startMinimized} onChange={startMinimized => set({ startMinimized })} label="Start minimized to the tray" />
             <Toggle checked={local.closeToTray} onChange={closeToTray => set({ closeToTray })} label="Keep running in the tray when the window closes"
               detail="Hotkeys and instant replay keep working; quit from the tray menu." />
-            <Toggle checked={local.launchAtLogin} onChange={launchAtLogin => set({ launchAtLogin })} label="Start SleekRec when you sign in"
-              detail="Starts in the tray. Installed builds only." />
+            {!navigator.platform.startsWith('Linux') && <Toggle checked={local.launchAtLogin} onChange={launchAtLogin => set({ launchAtLogin })} label="Start SleekRec when you sign in"
+              detail="Starts in the tray. Installed builds only." />}
           </Section>
 
           <Section title="Storage">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ExportRequest, FitTargetMB, LibraryEntry, MediaDetails, fitTargetsMB } from './recording'
+import { ExportRequest, FitTargetMB, LibraryEntry, MediaDetails, errorMessage, fitTargetsMB } from './recording'
 import { formatSeconds } from './SettingsModal'
 
 const kindLabels: Partial<Record<LibraryEntry['kind'], string>> = { replay: 'Replay', trim: 'Trim', export: 'Export', unfinished: 'Unfinished' }
@@ -98,8 +98,7 @@ function RecordingCard({ entry, highlighted, busy, onTrim, onError, onExport, on
   useEffect(() => { if (highlighted) ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [highlighted])
   const act = (action: 'open' | 'reveal' | 'copy' | 'trash') => {
     window.electronAPI.recordingAction(entry.path, action)
-      .then(() => { if (action === 'copy') window.electronAPI.toast('Copied. Paste it into a chat or a folder.') })
-      .catch(error => onError(String(error)))
+      .catch(error => onError(errorMessage(error)))
   }
   const seconds = details?.seconds || entry.seconds
   const width = details?.width || entry.width
@@ -142,7 +141,7 @@ function RecordingCard({ entry, highlighted, busy, onTrim, onError, onExport, on
             <ExportMenu disabled={busy} container={entry.container} onExport={request => onExport(entry, request)} />
           </>}
         <span className="flex-1" />
-        {!unfinished && <IconButton label="Copy the file to paste into Discord or a folder" onClick={() => act('copy')} path={icons.copy} />}
+        {!unfinished && <IconButton label={navigator.platform.startsWith('Win') ? 'Copy the file to paste into Discord or a folder' : 'Copy the file path'} onClick={() => act('copy')} path={icons.copy} />}
         <IconButton label="Show in folder" onClick={() => act('reveal')} path={icons.folder} />
         {confirmDelete
           ? <button className={`${actionStyle} text-red-300 hover:text-red-200`} onBlur={() => setConfirmDelete(false)} autoFocus
@@ -169,7 +168,7 @@ export function RecordingsPanel({ visible, highlight, busy, onTrim, onError, onR
     setStale(true)
     window.electronAPI.listRecordings()
       .then(list => { setEntries(list); setLoadError('') })
-      .catch(error => setLoadError(String(error)))
+      .catch(error => setLoadError(errorMessage(error)))
       .finally(() => setStale(false))
   }, [])
   useEffect(() => { if (visible) refresh() }, [visible, outputFolder, refresh])
@@ -183,12 +182,12 @@ export function RecordingsPanel({ visible, highlight, busy, onTrim, onError, onR
   const exportEntry = (entry: LibraryEntry | null, request: ExportRequest) => {
     window.electronAPI.exportRecording(entry?.path ?? null, request)
       .then(output => { if (output) window.electronAPI.toast(`Exported ${output.split(/[\\/]/).pop()}`) })
-      .catch(error => onError(String(error)))
+      .catch(error => onError(errorMessage(error)))
   }
   const recover = (entry: LibraryEntry) => {
     window.electronAPI.recoverRecording(entry.path)
       .then(saved => window.electronAPI.toast(`Recovered ${saved.path.split(/[\\/]/).pop()}`))
-      .catch(error => onError(`Recovery failed: ${String(error)}. The parts are still in the output folder.`))
+      .catch(error => onError(`Recovery failed: ${errorMessage(error)}. The parts are still in the output folder.`))
   }
 
   if (!visible) return null
@@ -201,7 +200,7 @@ export function RecordingsPanel({ visible, highlight, busy, onTrim, onError, onR
         {stale && entries && <span className="ml-2 text-gray-600">refreshing…</span>}
       </p>
       <button className={actionStyle} onClick={refresh}>Refresh</button>
-      <button className={actionStyle} onClick={() => { void window.electronAPI.openOutputFolder().catch(error => onError(String(error))) }}>Open folder</button>
+      <button className={actionStyle} onClick={() => { void window.electronAPI.openOutputFolder().catch(error => onError(errorMessage(error))) }}>Open folder</button>
       <button className={actionStyle} disabled={busy} onClick={() => exportEntry(null, { mode: 'small' })} title="Make a compatible MP4 from a file anywhere on disk">Convert a file…</button>
     </div>
     {loadError && <div role="alert" className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-200 flex items-center gap-3">

@@ -53,7 +53,8 @@ no account and nothing is uploaded.
 - **Audio.** System audio and an optional microphone, mixed or with the microphone on its own
   track for editors, plus level, mute and a raw-input switch.
 - **Hotkeys and tray.** **Ctrl+Shift+F8** starts or stops the last source, **F9** stops,
-  **F10** pauses, **F7** saves the replay (all with Ctrl+Shift, all configurable). A tray icon
+  **F10** pauses, **F7** saves the replay (all with Ctrl+Shift, Cmd+Shift on macOS, all
+  configurable). A tray icon
   shows the state and can start, stop and save; SleekRec can start with Windows in the tray.
 - **Recording overlay.** A small always-on-top panel shows the timer and encoded frame rate, with
   pause, microphone mute and stop buttons. It, the region border and hotkey notes stay out of the
@@ -72,13 +73,14 @@ no account and nothing is uploaded.
 - **MP4 when you stop.** GPU recordings capture into MKV, which survives a crash, then become an
   MP4 by stream copy, checked frame by frame before the MKV is removed. Ultra stays MKV. Browser
   recordings save as MP4 (H.264) or WebM (VP9).
-- **Recordings panel.** Thumbnails, duration, size, delivered fps and frame gaps for everything
-  saved. Play, trim, export, copy to the clipboard, drag into Discord or an editor, or move to the
-  recycle bin. Interrupted recordings can be recovered.
+- **Recordings panel.** Thumbnails, duration and size for everything saved, with delivered fps and
+  frame gaps where they were measured. Play, trim, export, copy to the clipboard (the file on
+  Windows, its path elsewhere), drag into Discord or an editor, or move to the recycle bin.
+  Interrupted recordings can be recovered.
 - **Trim.** Set in and out points over a preview. Fast trims cut on a keyframe without
   re-encoding; exact trims start on the frame.
 - **Fit under 10, 25, 50, 100 or 500 MB.** Picks a resolution and frame rate that stay legible at
-  that size, encodes on the GPU and checks the result. **MP4, same video** and **Compatible
+  that size, encodes on the GPU on Windows and checks the result. **MP4, same video** and **Compatible
   H.264 MP4** exports are there too. Every edit is a new file next to the original.
 
 ## Install
@@ -247,8 +249,10 @@ and checks the recordings list, a trim and a fit-to-size export, using an isolat
 
 ### Releasing
 
-Push a tag `v<version>` matching `package.json`. CI builds every platform and publishes a GitHub
-Release with the `latest*.yml` and `.blockmap` files the in-app updater reads.
+Push a tag `v<version>` matching `package.json`; CI fails on a mismatch. CI builds every platform
+and publishes a GitHub Release with the `latest*.yml` and `.blockmap` files the in-app updater
+reads. The macOS runner packages both architectures, and `scripts/after-pack.cjs` gives each app
+an FFmpeg of its own architecture.
 
 CI signs the macOS app with a Developer ID and notarizes it when the repository has all five
 Actions secrets below. With none of them it builds an unsigned app, and with only some the macOS

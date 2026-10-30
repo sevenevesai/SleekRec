@@ -84,7 +84,11 @@ function fromSidecar(entry: LibraryEntry, sidecar: Record<string, unknown>): voi
 
 /** Recordings, replays, trims and exports in the output folder, newest first, plus unfinished sessions. */
 export async function listLibrary(outputFolder: string): Promise<LibraryEntry[]> {
-  const dirents = await fs.readdir(outputFolder, { withFileTypes: true }).catch(() => [])
+  // A folder that does not exist yet is empty; one that cannot be read must not look empty.
+  const dirents = await fs.readdir(outputFolder, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return []
+    throw error
+  })
   const entries: LibraryEntry[] = []
   for (const dirent of dirents) {
     const file = path.join(outputFolder, dirent.name)
@@ -159,6 +163,8 @@ export async function recoverUnfinished(file: string, signal?: AbortSignal): Pro
       await fs.unlink(manifest).catch(() => {}) // The manifest is ours; parts stay untouched.
     }
   } else {
+    // The caller trashes the input after success, so a finished master must never get this far.
+    if (!PARTIAL.test(file)) throw new Error('Only unfinished recordings can be recovered')
     const h264 = /\.partial\.mkv$/i.test(file)
     output = await uniqueOutput(file.replace(PARTIAL, `.${h264 ? 'mp4' : 'webm'}`), '_recovered', h264 ? '.mp4' : '.webm')
     await writeNew(output, partial => runFfmpeg(['-n', '-err_detect', 'ignore_err', '-i', file, '-map', '0:v:0', '-map', '0:a?', '-c:v', 'copy',

@@ -18,8 +18,10 @@ Defaults avoid Alt+F9/Alt+F10, which the NVIDIA App holds. All five are configur
 `isValidHotkey` accepts Electron accelerators where letters, digits and punctuation need a
 modifier, so a hotkey never swallows typing in other apps; function, media and Print Screen keys
 may stand alone. A duplicate accelerator is cleared, not shared. `globalShortcut.register`
-returning false means another app holds the combination; Settings shows "In use by another app".
-While a hotkey field listens for keys, SleekRec releases its hotkeys so the combination being
+returning false means another app holds the combination: Settings shows "In use by another app",
+and a toast says so at startup and after saving settings, because a hotkey that does nothing inside
+a game is otherwise silent. A hotkey field refuses combinations `isValidHotkey` rejects, since
+saving one would restore the default. Replay hotkeys exist only on Windows. While a hotkey field listens for keys, SleekRec releases its hotkeys so the combination being
 typed does not fire.
 
 ## Remembered source
@@ -45,7 +47,9 @@ replay arm/disarm.
 
 ## Startup
 
-- A single-instance lock focuses the running window on a second launch.
+- A single-instance lock focuses the running window on a second launch. `ready` still fires in the
+  second process after `app.quit()`, so startup checks the lock too: continuing would open a second
+  window and delete the running instance's replay buffer. The smoke test launches twice.
 - **Start minimized to the tray** creates the window hidden; launches with `--hidden` (the login
   item) do the same.
 - **Keep running in the tray when the window closes** hides instead of closing; quit from the
