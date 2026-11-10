@@ -214,11 +214,23 @@ test('Ultra encodes all 4:4:4 samples losslessly for H.264 and HEVC when NVENC i
 const defaults = { outputFolder: output, qualityPreset: 'medium', recordingEngine: 'auto', frameRate: 'display',
   nativeCodec: 'h264', systemAudio: true, columnCount: 2, micEnabled: false, micDeviceId: null, micVolume: 0.8,
   micRawInput: false, micTrack: 'mixed', hotkeys: { ...defaultHotkeys }, replaySeconds: 120, replayAutoArm: false,
-  startMinimized: false, closeToTray: false, launchAtLogin: false, lastSource: null }
+  startMinimized: false, closeToTray: false, launchAtLogin: false, lastSource: null, encoderPreference: 'auto',
+  mp4MaxGB: 16, afterRecording: 'none', fitTargetMB: 50, recycleMasterAfterCompress: false,
+  compression: { codec: 'h264', quality: 'balanced', maxHeight: 'source', maxFps: 'source' } }
 
 test('stored settings from older versions gain defaults, and invalid hotkeys and sources are refused', () => {
   const old = normalizeSettings({ outputFolder: output, qualityPreset: 'high', columnCount: 3 }, defaults)
   assert.equal(old.qualityPreset, 'high')
+  assert.equal(old.afterRecording, 'none', 'Nothing is compressed unless the user asks')
+  assert.equal(old.recycleMasterAfterCompress, false, 'Masters stay unless the user opts in')
+  assert.deepEqual(old.compression, defaults.compression)
+  const saving = normalizeSettings({ encoderPreference: 'vaapi', mp4MaxGB: 5, afterRecording: 'delete', fitTargetMB: 2.5,
+    recycleMasterAfterCompress: 'yes', compression: { codec: 'av1', quality: 'small', maxHeight: 1080, maxFps: 24 } }, defaults)
+  assert.deepEqual([saving.encoderPreference, saving.mp4MaxGB, saving.afterRecording, saving.fitTargetMB, saving.recycleMasterAfterCompress],
+    ['auto', 16, 'none', 50, false])
+  assert.deepEqual(saving.compression, { codec: 'h264', quality: 'small', maxHeight: 1080, maxFps: 'source' },
+    'Each compression field is validated by itself')
+  assert.equal(normalizeSettings({ fitTargetMB: 250, mp4MaxGB: 0, encoderPreference: 'mf' }, defaults).fitTargetMB, 250)
   assert.equal(old.micTrack, 'mixed')
   assert.deepEqual(old.hotkeys, defaultHotkeys)
   assert.equal(old.lastSource, null)

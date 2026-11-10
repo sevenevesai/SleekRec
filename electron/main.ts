@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { AppSettings, CaptureInfo, CaptureRegion, CaptureSource, ExportRequest, HotkeyAction, MediaDetails, NativeCapabilities,
-  PCMChunk, SavedRecording, SourceRef, clampRegion, defaultHotkeys, fitTargetsMB, gpuSupport,
+  PCMChunk, SavedRecording, SourceRef, clampRegion, defaultCompression, defaultHotkeys, fitTargetsMB, gpuSupport,
   qualityPresets } from '../src/recording'
 import { CaptureTarget, NativeRecorder, listNativeDisplays, listWindowRects, locateNativeWindows } from './native-recorder'
 import { ReplayBuffer, removeStaleReplayBuffers } from './replay-buffer'
@@ -71,6 +71,12 @@ const defaultSettings: AppSettings = {
   recordingEngine: 'auto',
   frameRate: 'display',
   nativeCodec: 'h264',
+  encoderPreference: 'auto',
+  mp4MaxGB: 16,
+  afterRecording: 'none',
+  compression: { ...defaultCompression },
+  fitTargetMB: 50,
+  recycleMasterAfterCompress: false,
   systemAudio: true,
   columnCount: 2,
   micEnabled: false,

@@ -90,3 +90,7 @@ them there.
 - CLI: `SleekRec --record --screen 1 --seconds 30 --out <path>` with exit codes, so scripts and
   agents can drive it. The sidecar already gives them a machine-readable result.
 - Per-app audio through WASAPI process loopback; needs native code.
+- AV1 capture (`av1_nvenc`, `av1_amf`, `av1_qsv`): needs the encoders in the trimmed FFmpeg, a
+  third `NativeCodec`, and an RTX 40, RX 7000 or Arc card to validate on.
+- Cross-adapter encoding for hybrid laptops (panel on the iGPU, encode on the dGPU) through a
+  system-memory copy; only if a run on such a laptop shows the iGPU encoder missing frame rate.

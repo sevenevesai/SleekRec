@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { CaptureAudio } from './capture-audio'
 import { CaptureSource, CaptureInfo, CaptureRegion, JobProgress, LibraryEntry, MediaDetails, NativeCapabilities, RecordingStats,
-  SavedRecording, SourceRef, captureBitrate, captureEngineForSource, defaultHotkeys, encoderLabels, gpuSupport, qualityPresets,
+  SavedRecording, SourceRef, captureBitrate, captureEngineForSource, defaultCompression, defaultHotkeys, encoderLabels, gpuSupport, qualityPresets,
   errorMessage, requestedFps } from './recording'
 import { SettingsModal, formatSeconds, hotkeyLabel } from './SettingsModal'
 import { RecordingsPanel, formatBytes } from './RecordingsPanel'
@@ -23,7 +23,8 @@ type Replay = { id: string; info: CaptureInfo; source: SourceRef; buffered: numb
 const initialSettings: AppSettings = { outputFolder: '', qualityPreset: 'medium', recordingEngine: 'auto', frameRate: 'display',
   nativeCodec: 'h264', systemAudio: true, columnCount: 2, micEnabled: false, micDeviceId: null, micVolume: 0.8, micRawInput: false,
   micTrack: 'mixed', hotkeys: { ...defaultHotkeys }, replaySeconds: 120, replayAutoArm: false, startMinimized: false,
-  closeToTray: false, launchAtLogin: false, lastSource: null }
+  closeToTray: false, launchAtLogin: false, lastSource: null, encoderPreference: 'auto', mp4MaxGB: 16, afterRecording: 'none',
+  compression: { ...defaultCompression }, fitTargetMB: 50, recycleMasterAfterCompress: false }
 
 function sourceLabel(source: CaptureSource, options: NativeOptions): string {
   if (options.region) return `${options.region.width}×${options.region.height} area of ${source.name}`

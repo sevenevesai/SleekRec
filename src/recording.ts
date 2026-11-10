@@ -10,6 +10,33 @@ export const replayLengths = [30, 60, 120, 300, 600] as const
 export type ReplaySeconds = typeof replayLengths[number]
 export const fitTargetsMB = [10, 25, 50, 100, 500] as const
 export type FitTargetMB = typeof fitTargetsMB[number]
+/** Any whole size in this range is a valid fit target; `fitTargetsMB` are the menu's presets. */
+export const fitTargetRangeMB = { min: 5, max: 4000 } as const
+
+/** Recordings larger than this many GB stay MKV on stop; 0 always makes the MP4. */
+export const mp4LimitsGB = [0, 8, 16, 32, 64] as const
+export type Mp4LimitGB = typeof mp4LimitsGB[number]
+
+export type CompressionQuality = 'high' | 'balanced' | 'small'
+/** Constant QP per level for hardware encoders; x264 uses CRF one lower. */
+export const compressionQp: Record<CompressionQuality, number> = { high: 20, balanced: 24, small: 28 }
+export const compressionHeights = ['source', 1440, 1080, 720] as const
+export const compressionFpsCaps = ['source', 60, 30] as const
+
+export interface CompressionOptions {
+  codec: NativeCodec
+  quality: CompressionQuality
+  /** Scales down, keeping the aspect ratio, only when the source is taller. */
+  maxHeight: typeof compressionHeights[number]
+  /** Lowers the frame rate only when the source is faster. */
+  maxFps: typeof compressionFpsCaps[number]
+}
+
+/** These options reproduce the Compatible H.264 MP4 export. */
+export const defaultCompression: CompressionOptions = { codec: 'h264', quality: 'balanced', maxHeight: 'source', maxFps: 'source' }
+
+/** The job queued by itself after a recording saves. Replay saves never queue one. */
+export type AfterRecording = 'none' | 'compress' | 'fit'
 
 /** Physical pixels in desktop coordinates, the space DXGI and the native helper report. */
 export interface CaptureRegion {
@@ -35,6 +62,14 @@ export interface AppSettings {
   recordingEngine: RecordingEngine
   frameRate: FrameRate
   nativeCodec: NativeCodec
+  /** Used when the display's adapter offers it for the codec; otherwise the adapter's first family. */
+  encoderPreference: 'auto' | EncoderFamily
+  mp4MaxGB: Mp4LimitGB
+  afterRecording: AfterRecording
+  compression: CompressionOptions
+  fitTargetMB: number
+  /** After a verified automatic copy, move the master to the Recycle Bin. Off unless chosen. */
+  recycleMasterAfterCompress: boolean
   systemAudio: boolean
   columnCount: number
   micEnabled: boolean
@@ -180,6 +215,8 @@ export interface SavedRecording {
   stats?: RecordingStats
   /** Set when the save kept a fallback, such as an MKV after a failed MP4 conversion. */
   warning?: string
+  /** A chosen outcome worth telling the user, such as MKV above the MP4 size limit. Not a fault. */
+  note?: string
 }
 
 export type LibraryKind = 'recording' | 'replay' | 'trim' | 'export' | 'unfinished'

@@ -1,8 +1,9 @@
 # Spec: encoder choice, automatic compression, large-file MKV, start/stop hotkey
 
 Written 2026-11-10 against 1.3.0. Four requested features, compared with what the code already
-does. Nothing here is implemented yet. Each section lists the current state, the change, the
-rules that must hold, and the tests. Decisions that need the owner are collected at the end.
+does. Each section lists the state at 1.3.0, the change, the rules that must hold, and the
+tests. Progress is tracked in [plan-capture-options.md](plan-capture-options.md); the settings
+types are already in `src/recording.ts`.
 
 Shared rules for all four: settings go through `src/recording.ts` (type), `electron/main.ts`
 (default) and `electron/settings.ts` (validation) together; masters and failed parts are never
@@ -80,8 +81,10 @@ rate, and nothing runs by itself after a stop.
   the master, the check `finalizeCapture` already applies.
 
 **Rules.**
-- The master is kept, so automatic compression adds a file and frees no space; see the open
-  decision below.
+- The master is kept, so automatic compression adds a file and frees no space, unless
+  `recycleMasterAfterCompress` is on. Then the master and its sidecar go to the Recycle Bin after
+  the copy verified, never before, and never for a manual export. A failed move is a warning on
+  the copy. Settings words this as a choice with its consequence, next to the mode it affects.
 - Jobs are refused during a recording today. An automatic job must wait instead: starting a
   recording aborts a running automatic job and requeues it for after the stop, because a second
   encoder session competes with live capture. Manual jobs keep the current refusal.
@@ -106,8 +109,12 @@ rewrites it to move the index to the front, so stop takes roughly two full passe
 recording. That time has not been measured for large files.
 
 **Change.**
-- New setting `mp4MaxGB: 0 | 4 | 8 | 16 | 32 | 64` where 0 means "always MP4". A recording whose
-  parts total more than the limit is saved as MKV. Proposed default 16; see open decisions.
+- New setting `mp4MaxGB: 0 | 8 | 16 | 32 | 64` where 0 means "always MP4". A recording whose
+  parts total more than the limit is saved as MKV. Default 16 until finalize throughput is
+  measured.
+- Between 4 GB and the limit the MP4 is written without faststart: one pass instead of two.
+  Faststart only helps a file streamed over HTTP, which nobody does with a file that size, and
+  editors open either layout. No setting; the 4 GB figure is a constant in `finalize.ts`.
 - Implementation point: the `mp4:` option passed from `CaptureProcess` to `finalizeCapture`
   (`electron/native-recorder.ts`) becomes false above the limit. A single-part recording is then
   a rename and stop returns at once; a multi-part one is one copy, not two.
@@ -120,11 +127,6 @@ recording. That time has not been measured for large files.
 
 **Rules.** The existing fallbacks stay and take precedence in their own cases. No path deletes
 parts before a verified output exists. Replay saves are bounded and unaffected.
-
-**Alternative worth choosing between.** Above the limit, write MP4 without faststart: one pass
-instead of two, and the file still opens in editors that refuse MKV (the reason roadmap item 3
-exists). It is less robust than MKV only during the copy, which the kept parts already cover.
-MKV is what was asked for and is specified above; the non-faststart MP4 is a one-flag variation.
 
 **Unknowns to measure first.** Finalize throughput in GB per minute on an SSD and an HDD, which
 sets the default. Behaviour at 4 GB on FAT32 and exFAT output folders, where the parts
@@ -148,25 +150,23 @@ the window.
   hotkey fires, the toast shows, and the capture survives the mode switch. Only if registration
   proves unreliable there, add a low-level keyboard hook in the helper as a second path; do not
   add it speculatively, since hooks are what anti-cheat flags.
-- With no remembered source, or one that no longer matches, the window opens, which pulls the
-  player out of the game. Proposed setting `hotkeySource: 'last' | 'activeDisplay'`: the second
-  records the display holding the foreground window. Default stays `last`, keeping the rule that
-  a hotkey never silently picks a different source.
-- Optional start and stop sound cue for cases where the toast is not visible; off by default
-  and never routed into the recording.
+- A first-time user who presses the hotkey before ever recording gets the window raised over
+  their game. When no source was ever remembered (`lastSource` is null), the hotkey records the
+  display under the cursor and the toast names it. No setting. A remembered source that no
+  longer matches keeps today's behaviour: a hotkey never picks a different source.
 
-**Tests.** Unit: `hotkeySource` resolution. The fullscreen matrix is manual and its results go
-into `hotkeys-and-tray.md`.
+**Tests.** Unit: the no-remembered-source choice. The fullscreen matrix is manual and its
+results go into `hotkeys-and-tray.md`.
 
-## Open decisions
+## Decisions (owner, 2026-11-10)
 
-1. Compression and the master: keep both files always (current contract in `CLAUDE.md`), or add
-   an opt-in "move the master to the Recycle Bin after a verified compressed copy". The second
-   changes a written project rule.
-2. Large recordings: MKV as specified, or MP4 without faststart, and the default limit (16 GB
-   proposed, to be replaced by a measured figure).
-3. Whether `hotkeySource: 'activeDisplay'` is wanted at all.
-4. Whether AV1 and cross-adapter encoding go on the roadmap.
+1. Compression keeps the master by default. `recycleMasterAfterCompress` is an opt-in that moves
+   the master to the Recycle Bin, restorable, only after an automatic copy verified. Manual
+   exports never touch the master.
+2. Large recordings: MKV above the limit, plus MP4 without faststart between 4 GB and the limit.
+3. No hotkey source setting and no sound cue; only the first-use fallback above.
+4. AV1 and cross-adapter encoding are on the roadmap under "Later". Neither can be validated on
+   the development machine (RTX 2080 Ti has no AV1 encoder; no hybrid laptop).
 
 ## Order and size
 
