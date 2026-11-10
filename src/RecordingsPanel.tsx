@@ -161,6 +161,7 @@ function RecordingCard({ entry, highlighted, busy, onTrim, onError, onExport, on
       {derived && <p className="text-xs text-gray-500 truncate" title={entry.derivedFrom}>From {entry.derivedFrom}</p>}
       {!!entry.gapsOver100ms && <p className="text-xs text-yellow-300/90">{entry.gapsOver100ms} frame gaps over 100 ms</p>}
       {(entry.audioTracks?.length ?? 0) > 1 && <p className="text-xs text-gray-500">{entry.audioTracks!.length} audio tracks</p>}
+      {entry.note && <p className="text-xs text-gray-400">{entry.note}</p>}
       {entry.warning && <p className="text-xs text-yellow-300/90">{entry.warning}</p>}
       {entry.savedAs && <p className="text-xs text-gray-400">Saved as {entry.savedAs}; these parts could not be deleted then and are safe to delete.</p>}
       <div className="flex items-center gap-0.5 pt-1 -ml-2">

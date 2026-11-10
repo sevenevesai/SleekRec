@@ -1016,7 +1016,7 @@ ipcMain.on('show-overlay', () => {
 })
 ipcMain.on('hide-overlay', () => closeOverlayWindow())
 ipcMain.on('sync-timer', (_event, data: { timer: number; isPaused: boolean; isMicMuted: boolean; hasMic: boolean }) => {
-  overlayWin?.webContents.send('timer-update', data)
+  overlayWin?.webContents.send('timer-update', { ...data, mkvOnStop: !!(nativeRecorder ?? browserRecorder)?.mkvOnStop })
   if (recordingBusy && data.isPaused !== recordingPaused) {
     recordingPaused = data.isPaused
     updateTray()

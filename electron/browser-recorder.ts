@@ -4,6 +4,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { AppSettings, CaptureInfo, SavedRecording, qualityPresets } from '../src/recording'
 import { runFfmpeg } from './ffmpeg'
+import { GiB, mp4Layout, overMp4LimitNote } from './finalize'
 import { FramePacingMeter } from './frame-pacing'
 
 export class BrowserRecorder {
@@ -13,10 +14,13 @@ export class BrowserRecorder {
   private pending = Promise.resolve()
   private closed = false
   private file: string
+  private bytes = 0
+  private readonly mp4MaxBytes: number
   private stopPromise?: Promise<SavedRecording>
 
   constructor(private settings: AppSettings, private info: CaptureInfo, private codec: 'h264' | 'vp9') {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    this.mp4MaxBytes = settings.mp4MaxGB * GiB
     this.file = path.join(settings.outputFolder, `Recording_${stamp}_${this.id.slice(0, 8)}.partial.${codec === 'h264' ? 'mkv' : 'webm'}`)
   }
 
@@ -33,6 +37,7 @@ export class BrowserRecorder {
   write(chunk: ArrayBuffer): Promise<void> {
     if (this.closed || !this.stream) return Promise.reject(new Error('The recording file is closed'))
     if (chunk.byteLength > 64 * 1024 * 1024) return Promise.reject(new Error('Recording chunk exceeds the 64 MB queue limit'))
+    this.bytes += chunk.byteLength
     this.pending = this.pending.then(() => new Promise<void>((resolve, reject) => {
       if (this.error) { reject(this.error); return }
       this.stream!.write(Buffer.from(chunk), error => error ? reject(error) : resolve())
@@ -50,6 +55,11 @@ export class BrowserRecorder {
     return this.stopPromise
   }
 
+  /** Whether stop will keep the MKV master because the recording passed the MP4 size limit. */
+  get mkvOnStop(): boolean {
+    return this.codec === 'h264' && mp4Layout(this.bytes, this.mp4MaxBytes) === 'mkv'
+  }
+
   private async finish(): Promise<SavedRecording> {
     this.closed = true
     await this.flush()
@@ -58,19 +68,24 @@ export class BrowserRecorder {
       this.stream!.end(() => resolve())
     })
     const preset = qualityPresets[this.settings.qualityPreset]
-    const output = this.file.replace(/\.partial\.(mkv|webm)$/, this.codec === 'h264' ? '.mp4' : '.webm')
+    const bytes = (await fsp.stat(this.file)).size
+    const layout = mp4Layout(bytes, this.mp4MaxBytes)
+    const remux = this.codec === 'h264' && layout !== 'mkv'
+    // Dropping `.partial` lists a kept master as a finished recording.
+    const output = this.file.replace(/\.partial\.(mkv|webm)$/, remux ? '.mp4' : '.$1')
     const pacing = new FramePacingMeter()
-    if (this.codec === 'h264') {
+    if (remux) {
       await runFfmpeg(['-n', '-i', this.file, '-map', '0:v:0', '-map', '0:a?', '-c:v', 'copy',
         '-c:a', 'aac', '-b:a', preset.audioBitrate, '-ac', String(preset.audioChannels),
-        '-ar', String(preset.audioSampleRate), '-movflags', '+faststart', output,
+        '-ar', String(preset.audioSampleRate), ...(layout === 'faststart' ? ['-movflags', '+faststart'] : []), output,
         // FFmpeg 6.1 does not emit stats_mux_pre for stream copy. Inspect the
         // same compressed packets during remux; no decoding or second read.
         '-map', '0:v:0', '-c:v', 'copy', '-f', 'framecrc', 'pipe:1'],
       0, data => pacing.write(data))
       await fsp.unlink(this.file)
     } else {
-      // Preserve the captured VP9 master. H.264 conversion is an explicit export.
+      // Preserve the captured master: VP9 always, H.264 above the MP4 limit. Conversion is an
+      // explicit export.
       await fsp.rename(this.file, output)
     }
     // Capture track settings can describe the monitor before the first window
@@ -83,7 +98,8 @@ export class BrowserRecorder {
     const info = { ...this.info, ...(dimensions ? { width: Number(dimensions[1]), height: Number(dimensions[2]) } : {}) }
     const stats = measured.frames ? { frames: measured.frames, seconds, fps: measured.averageFps,
       bytes: (await fsp.stat(output)).size, speed: 1, pacing: measured } : undefined
-    const result = { path: output, info, stats }
+    const note = this.codec === 'h264' && !remux ? overMp4LimitNote(bytes, this.mp4MaxBytes) : undefined
+    const result = { path: output, info, stats, ...(note ? { note } : {}) }
     await fsp.writeFile(`${output}.json`, JSON.stringify(result, null, 2)).catch(() => {})
     return result
   }

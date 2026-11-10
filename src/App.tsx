@@ -165,7 +165,9 @@ function MainApp() {
       setSaved(result)
       setHighlight(result.path)
       if (session.origin === 'hotkey') {
-        window.electronAPI.toast(`Recording saved · ${formatSeconds(result.stats?.seconds ?? 0)} · ${formatBytes(result.stats?.bytes ?? 0)}`)
+        // The toast holds two lines: the note's first sentence already names the size.
+        window.electronAPI.toast(result.note ? `${result.note.split('. ')[0]} · ${formatSeconds(result.stats?.seconds ?? 0)}`
+          : `Recording saved · ${formatSeconds(result.stats?.seconds ?? 0)} · ${formatBytes(result.stats?.bytes ?? 0)}`)
       } else setView('recordings')
     } catch (e) {
       setError(`Could not finish recording: ${errorMessage(e)}. Any recoverable parts remain in the output folder.`)
@@ -553,6 +555,7 @@ function MainApp() {
       {saved && !isRecording && <div className="p-3 bg-primary/10 rounded-lg text-sm break-all">Saved: {saved.path}
         <p className="mt-1 text-xs text-gray-400">{saved.info.width}×{saved.info.height} · {saved.info.engine === 'native' ? `GPU · ${saved.info.codec}` : 'Browser'} recording{saved.info.kind === 'replay' ? ' · instant replay' : ''}</p>
         {saved.stats?.pacing && <p className="mt-1 text-xs text-gray-300 tabular-nums">{saved.stats.pacing.averageFps.toFixed(1)} fps average · {saved.stats.pacing.gapsOver100ms} frame gaps over 100 ms · longest {Math.round(saved.stats.pacing.maxGapMs)} ms</p>}
+        {saved.note && <p className="mt-1 text-xs text-gray-300">{saved.note}</p>}
         {saved.warning && <p className="mt-1 text-xs text-yellow-300">{saved.warning}</p>}
       </div>}
     </div>

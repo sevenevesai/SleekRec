@@ -64,7 +64,8 @@ declare global {
       onHotkeyRecord: (callback: (cursor?: { x: number; y: number }) => void) => () => void
       onHotkeyReplayToggle: (callback: () => void) => () => void
       onReplayOff: (callback: () => void) => () => void
-      onTimerUpdate: (callback: (data: TimerState) => void) => () => void
+      /** The overlay's state; main adds whether stop will keep MKV above the MP4 size limit. */
+      onTimerUpdate: (callback: (data: TimerState & { mkvOnStop: boolean }) => void) => () => void
       onRecordingStats: (callback: (stats: RecordingStats) => void) => () => void
       onRecordingError: (callback: (message: string) => void) => () => void
       onFinalizeProgress: (callback: (fraction: number) => void) => () => void

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { EncoderFamily, FrameRate, HotkeyAction, NativeCapabilities, ReplaySeconds, encoderLabels, isValidHotkey, replayLengths } from './recording'
+import { EncoderFamily, FrameRate, HotkeyAction, NativeCapabilities, ReplaySeconds, encoderLabels, isValidHotkey, mp4LimitsGB, replayLengths } from './recording'
 import { CompressionFields, FitSizeInput } from './CompressionFields'
 
 export const hotkeyNames: Record<HotkeyAction, string> = {
@@ -343,6 +343,12 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: {
               <button onClick={() => { void window.electronAPI.selectOutputFolder().then(folder => { if (folder) set({ outputFolder: folder }) }) }}
                 className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-white transition-colors">Browse</button>
             </div>
+            <label className="block text-sm text-gray-400">Large recordings</label>
+            <select aria-label="Large recordings" value={local.mp4MaxGB} className={selectStyle}
+              onChange={e => set({ mp4MaxGB: Number(e.target.value) as AppSettings['mp4MaxGB'] })}>
+              {mp4LimitsGB.map(gb => <option key={gb} value={gb}>{gb ? `Keep MKV above ${gb} GB` : 'Always make an MP4'}</option>)}
+            </select>
+            <p className="text-xs text-gray-500">Above the limit, stopping skips the MP4 copy and keeps the MKV; convert it later with MP4, same video in Recordings.</p>
             <label className="block text-sm text-gray-400">Source thumbnail columns</label>
             <div className="flex gap-2">
               {[2, 3, 4].map(cols => <button key={cols} onClick={() => set({ columnCount: cols })}

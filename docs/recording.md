@@ -86,13 +86,29 @@ The settings meter owns a separate stream and cancels pending acquisition on mod
 
 Native capture writes MKV parts into a session folder under the output folder: periodic clusters
 survive a crash. Stop sends FFmpeg `q` and waits for encoder/muxer drain. `electron/finalize.ts`
-then stream-copies the part (or the concat of parts) once into `<session>.partial.mp4` with
-`+faststart`, counting the copied video packets from the same read through a `framecrc` output.
+then stream-copies the part (or the concat of parts) once into `<session>.partial.mp4`, counting
+the copied video packets from the same read through a `framecrc` output.
 The MP4 is renamed into place and the parts deleted only when the packet count equals the
 capture's muxed packets, every stream is present and the duration matches within 1 s or 1%.
 Otherwise the parts are joined into `<session>.mkv` and the sidecar and saved banner carry the
 reason. The MP4 also falls back when free space is below the parts' size plus 512 MB. Ultra keeps
 its MKV: 4:4:4 in MP4 plays no better. Finalize progress reaches the UI as `finalize-progress`.
+
+Two size thresholds bound stop time. Up to 4 GiB (`FASTSTART_MAX_BYTES`) the MP4 gets
+`+faststart`; above it the index stays at the end, since moving it rewrites the whole file and only
+helps playback streamed over HTTP. Parts larger than `mp4MaxGB` (Settings, "Large recordings"; 0
+means always MP4) skip the MP4 copy and take the MKV path, so a single part is only renamed and
+stop returns at once. The other fallbacks still apply in their own cases. Being a chosen outcome,
+this sets the result's `note`, not `warning`: the saved card, Recordings card and hotkey toast show
+it without warning styling, and the overlay says "will save as MKV" once the written size passes
+the limit (`mkvOnStop`, added by main to `timer-update`). The browser engine applies both rules to
+its remux and above the limit keeps its `.partial.mkv` as `.mkv`. "MP4, same video" in Recordings
+converts later.
+
+Measured finalize of 6.7 GB in three 100 Mbps parts (2026-11-10, parts still in the file cache):
+NVMe SSD 7-10 s with faststart, 6-6.5 s without, 9-10 s for the MKV join; 7200 rpm HDD 135-146 s,
+54 s and 50-57 s. A single part over the limit is renamed in under 0.1 s on either. The join is no
+faster than an MP4 without faststart, so only a recording without pauses stops at once.
 
 The MKV join writes through `<session>.partial.mkv` and is verified too: the concat demuxer skips
 a part it cannot open and still exits 0, so a join whose log reports an unreadable part, or that

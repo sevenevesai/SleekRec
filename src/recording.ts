@@ -242,6 +242,7 @@ export interface LibraryEntry {
   audioTracks?: string[]
   derivedFrom?: string
   warning?: string
+  note?: string
   /** Unfinished native sessions: the number of Matroska parts on disk. */
   parts?: number
   /** Unfinished folder whose recording was saved but whose parts could not be deleted. */

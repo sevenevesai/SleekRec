@@ -27,7 +27,7 @@ const { FramePacingMeter } = load('electron/frame-pacing.ts', 'pacing')
 const { listNativeDisplays, NativeRecorder } = load('electron/native-recorder.ts', 'native')
 const { captureDeviceArgs, captureEncoderArgs, captureGraph, encoderName, openedExpectedAdapter, withEncoders } =
   load('electron/gpu-capture.ts', 'gpu')
-const { finalizeCapture, audioTrackArgs } = load('electron/finalize.ts', 'finalize')
+const { finalizeCapture, audioTrackArgs, mp4Layout, overMp4LimitNote } = load('electron/finalize.ts', 'finalize')
 const { ReplayBuffer, REPLAY_DIRECTORY } = load('electron/replay-buffer.ts', 'replay')
 const { listLibrary, libraryPath, recoverUnfinished, uniqueOutput } = load('electron/library.ts', 'library')
 const { probeMedia, parseProbe } = load('electron/media-probe.ts', 'probe')
@@ -83,6 +83,27 @@ test('VP9 fallback retains original compressed bytes without mandatory H.264 con
   const saved = await recorder.stop()
   assert.match(saved.path, /\.webm$/)
   assert.deepEqual(await fs.readFile(saved.path), bytes)
+})
+
+test('a browser recording over the MP4 limit keeps its Matroska master as a finished recording with a note', async () => {
+  const fixture = path.join(output, 'source-limit.mkv')
+  await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'testsrc2=size=160x96:rate=60',
+    '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '0.5',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'libopus', fixture])
+  const bytes = await fs.readFile(fixture)
+  const recorder = new BrowserRecorder({ ...settings, mp4MaxGB: 2 ** -30 }, info, 'h264') // A 1-byte limit.
+  await recorder.start()
+  await recorder.write(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
+  assert.equal(recorder.mkvOnStop, true, 'the overlay hint turns on once the written size passes the limit')
+  const saved = await recorder.stop()
+  assert.match(path.basename(saved.path), /^Recording_[^.]+\.mkv$/, 'no .partial: the library lists it as finished')
+  assert.deepEqual(await fs.readFile(saved.path), bytes, 'the master is kept, not converted')
+  assert.match(saved.note, /^Saved as MKV: 0 GB is over the 0 GB MP4 limit\./)
+  assert.equal(saved.warning, undefined)
+  const entry = (await listLibrary(output)).find(item => item.path === saved.path)
+  assert.equal(entry.kind, 'recording')
+  assert.equal(entry.note, saved.note, 'the note reaches the Recordings card through the sidecar')
+  assert.equal(entry.warning, undefined)
 })
 
 test('failed conversion keeps the partial recording available for recovery', async () => {
@@ -409,6 +430,34 @@ async function captureParts(name, count, seconds = 1) {
   return { folder, parts }
 }
 
+async function topLevelBoxes(file) {
+  const handle = await fs.open(file)
+  const boxes = []
+  try {
+    const { size } = await handle.stat()
+    const header = Buffer.alloc(16)
+    for (let offset = 0; offset < size;) {
+      await handle.read(header, 0, 16, offset)
+      const short = header.readUInt32BE(0)
+      boxes.push(header.toString('latin1', 4, 8))
+      offset += short === 1 ? Number(header.readBigUInt64BE(8)) : short || size - offset
+    }
+  } finally { await handle.close() }
+  return boxes
+}
+
+test('the MP4 layout follows the size limit and the faststart threshold', () => {
+  const GiB = 1024 ** 3
+  assert.equal(mp4Layout(4 * GiB), 'faststart')
+  assert.equal(mp4Layout(4 * GiB + 1), 'mp4', 'above 4 GiB the index is not moved to the front')
+  assert.equal(mp4Layout(200 * GiB, 0), 'mp4', '0 means always MP4')
+  assert.equal(mp4Layout(16 * GiB, 16 * GiB), 'mp4')
+  assert.equal(mp4Layout(16 * GiB + 1, 16 * GiB), 'mkv')
+  assert.equal(mp4Layout(5 * GiB, 8 * GiB, 1), 'mp4')
+  assert.equal(overMp4LimitNote(38.24 * GiB, 16 * GiB),
+    'Saved as MKV: 38.2 GB is over the 16 GB MP4 limit. Use MP4, same video in Recordings to convert it.')
+})
+
 test('a clean stop joins parts into a verified faststart MP4 and deletes the parts only afterwards', async () => {
   const { folder, parts } = await captureParts('finalize-mp4', 2)
   const progress = []
@@ -448,6 +497,53 @@ test('an MP4 that does not verify leaves the joined MKV master and says why', as
   await assert.rejects(fs.stat(`${broken.folder}.mkv`), /ENOENT/, 'a failed join leaves no truncated recording')
   await assert.rejects(fs.stat(`${broken.folder}.partial.mkv`), /ENOENT/)
   assert.ok((await fs.stat(broken.parts[0])).size > 0, 'and keeps the parts for recovery')
+})
+
+test('a recording over the MP4 size limit keeps its MKV master with a note, not a warning', async () => {
+  const options = { mp4: true, hevc: false, audioTracks: ['Game'], expectedFrames: 120, expectedSeconds: 2, mp4MaxBytes: 1 }
+  const { folder, parts } = await captureParts('finalize-limit', 2)
+  const result = await finalizeCapture(parts, folder, options)
+  assert.equal(result.path, `${folder}.mkv`)
+  assert.equal(result.note, 'Saved as MKV: 0 GB is over the 0 GB MP4 limit. Use MP4, same video in Recordings to convert it.')
+  assert.equal(result.warning, undefined)
+  await assert.rejects(fs.stat(`${folder}.mp4`), /ENOENT/)
+  await assert.rejects(fs.stat(`${folder}.partial.mp4`), /ENOENT/, 'no MP4 copy was attempted')
+  assert.equal((await probeMedia(result.path)).streams.length, 2)
+  await assert.rejects(fs.stat(folder), /ENOENT/, 'the joined parts are deleted as on the MKV path')
+  const single = await captureParts('finalize-limit-one', 1)
+  const master = await fs.readFile(single.parts[0])
+  const renamed = await finalizeCapture(single.parts, single.folder, { ...options, expectedFrames: 60, expectedSeconds: 1 })
+  assert.equal(renamed.path, `${single.folder}.mkv`)
+  assert.deepEqual(await fs.readFile(renamed.path), master, 'a single part is renamed, not copied')
+  assert.match(renamed.note, /^Saved as MKV/)
+  const clash = await captureParts('finalize-limit-clash', 2)
+  await fs.writeFile(`${clash.folder}.mkv`, 'an earlier recording')
+  await assert.rejects(finalizeCapture(clash.parts, clash.folder, options), /already exists/)
+  assert.equal(await fs.readFile(`${clash.folder}.mkv`, 'utf8'), 'an earlier recording', 'an existing file is never replaced')
+  assert.ok((await fs.stat(clash.parts[1])).size > 0, 'and the parts stay')
+  const ultra = await captureParts('finalize-limit-ultra', 1)
+  const kept = await finalizeCapture(ultra.parts, ultra.folder, { ...options, mp4: false, expectedFrames: 60, expectedSeconds: 1 })
+  assert.equal(kept.path, `${ultra.folder}.mkv`)
+  assert.equal(kept.note, undefined, 'Ultra is always MKV and gets no note')
+})
+
+test('between the faststart threshold and the MP4 limit the MP4 is verified but its index stays at the end', async () => {
+  const options = { mp4: true, hevc: false, audioTracks: ['Game'], expectedFrames: 120, expectedSeconds: 2,
+    mp4MaxBytes: 1024 ** 3, faststartMaxBytes: 1 }
+  const { folder, parts } = await captureParts('finalize-plain', 2)
+  const result = await finalizeCapture(parts, folder, options)
+  assert.equal(result.path, `${folder}.mp4`)
+  assert.equal(result.note, undefined)
+  assert.equal(result.warning, undefined)
+  const boxes = await topLevelBoxes(result.path)
+  assert.ok(boxes.includes('mdat') && boxes.indexOf('mdat') < boxes.indexOf('moov'), `moov after mdat, not faststart: ${boxes}`)
+  assert.ok(Math.abs((await probeMedia(result.path)).seconds - 2) < 0.1)
+  await assert.rejects(fs.stat(folder), /ENOENT/, 'parts are gone after the MP4 verified')
+  const unverified = await captureParts('finalize-plain-fallback', 2)
+  const fallback = await finalizeCapture(unverified.parts, unverified.folder, { ...options, expectedFrames: 999 })
+  assert.equal(fallback.path, `${unverified.folder}.mkv`)
+  assert.match(fallback.warning, /Saved as MKV.*copied 120 of 999/, 'the same verification applies')
+  assert.equal(fallback.note, undefined)
 })
 
 // ---- Library, recovery, trim and fit-to-size ----

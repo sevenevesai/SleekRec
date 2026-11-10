@@ -34,6 +34,7 @@ window.electronAPI.onTimerUpdate(data => {
   mic.title = data.isMicMuted ? 'Unmute mic' : 'Mute mic'
   toggle(byId('mic-on'), 'hidden', data.isMicMuted)
   toggle(byId('mic-off'), 'hidden', !data.isMicMuted)
+  toggle(byId('mkv'), 'hidden', !data.mkvOnStop)
 })
 window.electronAPI.onRecordingStats(stats => {
   fps.textContent = `${Math.round(stats.fps)} fps encoded`

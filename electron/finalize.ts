@@ -11,15 +11,40 @@ export interface FinalizeOptions {
   /** Encoded video packets and seconds the capture reported; the MP4 must contain exactly these. */
   expectedFrames: number
   expectedSeconds: number
+  /** `AppSettings.mp4MaxGB` in bytes: larger recordings keep the MKV master. 0 or absent: no limit. */
+  mp4MaxBytes?: number
+  /** Tests only; defaults to `FASTSTART_MAX_BYTES`. */
+  faststartMaxBytes?: number
   onProgress?: (fraction: number) => void
 }
 
 export interface Finalized {
   path: string
   warning?: string
+  /** A chosen outcome such as MKV above the MP4 limit; `warning` is for faults. */
+  note?: string
 }
 
 const MiB = 1024 * 1024
+export const GiB = 1024 * MiB
+/**
+ * Larger MP4s are written without faststart. Moving the index to the front rewrites the whole
+ * file (2.5x the stop time on a hard disk) and only helps playback streamed over HTTP; players and
+ * editors open either layout.
+ */
+export const FASTSTART_MAX_BYTES = 4 * GiB
+
+/** How a stream copy of `bytes` is saved: MKV above the MP4 limit (0 = none), else MP4. */
+export function mp4Layout(bytes: number, mp4MaxBytes = 0, faststartMaxBytes = FASTSTART_MAX_BYTES): 'mkv' | 'mp4' | 'faststart' {
+  if (mp4MaxBytes > 0 && bytes > mp4MaxBytes) return 'mkv'
+  return bytes > faststartMaxBytes ? 'mp4' : 'faststart'
+}
+
+const gb = (bytes: number) => `${Number((bytes / GiB).toFixed(1))} GB`
+
+export function overMp4LimitNote(bytes: number, mp4MaxBytes: number): string {
+  return `Saved as MKV: ${gb(bytes)} is over the ${gb(mp4MaxBytes)} MP4 limit. Use MP4, same video in Recordings to convert it.`
+}
 
 /** MP4 track names and default flags: the mixed track plays in single-track players. */
 export function audioTrackArgs(titles: string[]): string[] {
@@ -28,10 +53,11 @@ export function audioTrackArgs(titles: string[]): string[] {
 }
 
 /**
- * Joins capture parts into `${base}.mp4`, or `${base}.mkv` when MP4 is off or fails. The MKV
- * only matters while recording: its clusters survive a crash. After a clean stop the parts are
- * stream-copied once into a faststart MP4, verified by packet count and duration, and deleted
- * only after that. A failed or unverifiable MP4 leaves the Matroska master instead.
+ * Joins capture parts into `${base}.mp4`, or `${base}.mkv` when MP4 is off, over the size limit
+ * or fails. The MKV only matters while recording: its clusters survive a crash. After a clean
+ * stop the parts are stream-copied once into an MP4 (faststart up to `FASTSTART_MAX_BYTES`),
+ * verified by packet count and duration, and deleted only after that. A failed or unverifiable
+ * MP4 leaves the Matroska master instead.
  */
 export async function finalizeCapture(parts: string[], base: string, options: FinalizeOptions): Promise<Finalized> {
   if (!parts.length) throw new Error('No recording was captured')
@@ -67,18 +93,22 @@ export async function finalizeCapture(parts: string[], base: string, options: Fi
   const roomForCopy = disk.bavail * disk.bsize >= bytes + 512 * MiB
   const needed = `${Math.ceil((bytes + 512 * MiB) / 1024 / MiB)} GB`
   const warnings: string[] = []
-  const result = (file: string): Finalized => ({ path: file, ...(warnings.length ? { warning: warnings.join(' ') } : {}) })
+  const layout = mp4Layout(bytes, options.mp4MaxBytes, options.faststartMaxBytes)
+  const note = options.mp4 && layout === 'mkv' ? overMp4LimitNote(bytes, options.mp4MaxBytes!) : undefined
+  const result = (file: string): Finalized => ({ path: file, ...(warnings.length ? { warning: warnings.join(' ') } : {}),
+    ...(note ? { note } : {}) })
+  const makeMp4 = options.mp4 && !note
   let mp4Done = false
-  if (options.mp4 && !roomForCopy) {
+  if (makeMp4 && !roomForCopy) {
     warnings.push(`Kept the MKV master: making the MP4 copy needs ${needed} free.`)
-  } else if (options.mp4) {
+  } else if (makeMp4) {
     const partial = `${base}.partial.mp4`
     try {
       let packets = 0
       let crcTimeBase = 0
       let pending = ''
       await runFfmpeg(['-n', ...input, '-map', '0', '-c', 'copy', ...(options.hevc ? ['-tag:v', 'hvc1'] : []),
-        ...audioTrackArgs(options.audioTracks), '-movflags', '+faststart', partial,
+        ...audioTrackArgs(options.audioTracks), ...(layout === 'faststart' ? ['-movflags', '+faststart'] : []), partial,
         // Count the copied packets from the same read: no second pass over the file.
         '-map', '0:v:0', '-c', 'copy', '-f', 'framecrc', 'pipe:1'], 0, data => {
         const lines = (pending + data.toString()).split('\n')

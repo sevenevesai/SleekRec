@@ -83,6 +83,7 @@ function fromSidecar(entry: LibraryEntry, sidecar: Record<string, unknown>): voi
   entry.fps = num(pacing?.averageFps)
   entry.gapsOver100ms = num(pacing?.gapsOver100ms)
   entry.warning = str(sidecar.warning)
+  entry.note = str(sidecar.note)
 }
 
 /** Recordings, replays, trims and exports in the output folder, newest first, plus unfinished sessions. */

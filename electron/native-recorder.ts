@@ -9,7 +9,7 @@ import { AppSettings, CaptureInfo, CaptureRegion, EncoderFamily, NativeDisplay, 
 import { pcmHeader, pcmPacket, pcmAudioFilter } from './pcm-matroska'
 import { FramePacingMeter, framePacingArgs } from './frame-pacing'
 import { captureDeviceArgs, captureEncoderArgs, captureGraph, encoderName, openedExpectedAdapter } from './gpu-capture'
-import { audioTrackArgs, finalizeCapture } from './finalize'
+import { GiB, audioTrackArgs, finalizeCapture, mp4Layout } from './finalize'
 import { probeMedia } from './media-probe'
 
 function runHelper<T>(helper: string, args: string[], fallback: T): Promise<T> {
@@ -348,6 +348,12 @@ export class NativeRecorder {
     }
   }
 
+  /** Whether stop will keep the MKV master because the recording passed the MP4 size limit. */
+  get mkvOnStop(): boolean {
+    return this.settings.qualityPreset !== 'ultra' &&
+      mp4Layout(this.lastStats?.bytes ?? 0, this.settings.mp4MaxGB * GiB) === 'mkv'
+  }
+
   waitUntilReady(): Promise<void> {
     if (!this.capture) return Promise.reject(new Error('No active GPU capture'))
     return this.capture.ready
@@ -388,7 +394,8 @@ export class NativeRecorder {
     const finalized = await finalizeCapture(parts, this.folder, {
       mp4: this.settings.qualityPreset !== 'ultra', hevc: this.settings.nativeCodec === 'hevc',
       audioTracks: this.info.audioTracks ?? [], expectedFrames: this.pacing.snapshot().frames,
-      expectedSeconds: this.completedSeconds, onProgress: this.onFinalizeProgress })
+      expectedSeconds: this.completedSeconds, mp4MaxBytes: this.settings.mp4MaxGB * GiB,
+      onProgress: this.onFinalizeProgress })
     const output = finalized.path
     const probe = await probeMedia(output).catch(() => undefined)
     if (this.lastStats && probe?.seconds) {
@@ -399,7 +406,7 @@ export class NativeRecorder {
     const warnings = [stopError && `The last segment ended with an error, so the recording ends there: ${String(stopError).split('\n')[0].slice(0, 200)}`,
       finalized.warning].filter((text): text is string => !!text)
     const result: SavedRecording = { path: output, info: this.info, stats: this.lastStats,
-      ...(warnings.length ? { warning: warnings.join(' ') } : {}) }
+      ...(warnings.length ? { warning: warnings.join(' ') } : {}), ...(finalized.note ? { note: finalized.note } : {}) }
     await fs.writeFile(`${output}.json`, JSON.stringify(result, null, 2)).catch(() => {}) // Sidecar loss only costs panel details.
     return result
   }
