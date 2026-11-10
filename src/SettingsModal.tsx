@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { EncoderFamily, FrameRate, HotkeyAction, NativeCapabilities, ReplaySeconds, encoderLabels, isValidHotkey, replayLengths } from './recording'
+import { CompressionFields, FitSizeInput } from './CompressionFields'
 
 export const hotkeyNames: Record<HotkeyAction, string> = {
   record: 'Start or stop recording', stop: 'Stop and save', pause: 'Pause or resume',
@@ -291,6 +292,32 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: {
             <Toggle checked={local.replayAutoArm} onChange={replayAutoArm => set({ replayAutoArm })}
               label="Turn on instant replay when SleekRec starts" detail="Uses the last GPU source you recorded or armed. Replay keeps only the last few minutes on disk." />
           </Section>}
+
+          <Section title="After recording">
+            <label className="block text-sm text-gray-400" htmlFor="after-recording">When a recording is saved</label>
+            <select id="after-recording" value={local.afterRecording} className={selectStyle}
+              onChange={e => set({ afterRecording: e.target.value as AppSettings['afterRecording'] })}>
+              <option value="none">Do nothing</option>
+              <option value="compress">Make a compressed copy</option>
+              <option value="fit">Make a copy under a size</option>
+            </select>
+            {local.afterRecording === 'compress' && <div className="space-y-2">
+              <CompressionFields value={local.compression} onChange={compression => set({ compression })}
+                selectClass="w-56 bg-gray-800 rounded-lg px-3 py-1.5 text-sm text-gray-200 border border-gray-700 focus:border-primary focus:outline-none" />
+            </div>}
+            {local.afterRecording === 'fit' && <div className="flex items-start justify-between gap-3 text-xs text-gray-400">
+              <span className="pt-2">Largest size</span>
+              <FitSizeInput key={settings.fitTargetMB} initial={local.fitTargetMB} onChange={mb => { if (mb !== undefined) set({ fitTargetMB: mb }) }}
+                className="w-28 bg-gray-800 rounded-lg px-3 py-1.5 text-sm text-gray-200 tabular-nums border border-gray-700 focus:border-primary focus:outline-none" />
+            </div>}
+            {local.afterRecording !== 'none' && <>
+              <p className="text-xs text-gray-500">The copy is a new file next to the recording. It runs in the background, pauses while you record and
+                continues afterwards. Instant replay clips are left as they are.</p>
+              <Toggle checked={local.recycleMasterAfterCompress} onChange={recycleMasterAfterCompress => set({ recycleMasterAfterCompress })}
+                label="Move the original to the Recycle Bin once the smaller copy is verified"
+                detail="Off: both files are kept. On: the original goes to the Recycle Bin, where you can restore it, only after the copy checks out." />
+            </>}
+          </Section>
 
           <Section title="Hotkeys">
             <p className="text-xs text-gray-500">Global: they work while a game has focus. Click a field and press the keys; Backspace clears it.</p>

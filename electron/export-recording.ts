@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { CompressionOptions, NativeCodec, compressionQp, defaultCompression } from '../src/recording'
 import { progressReader, runFfmpeg } from './ffmpeg'
 import { MediaInfo, probeMedia } from './media-probe'
 
@@ -46,16 +47,46 @@ export function bestExportEncoder(preferred?: HardwareEncoder): Promise<ExportEn
   return result
 }
 
-/** Constant-quality H.264 at the source resolution and frame timing. */
-function compatibleVideo(encoder: ExportEncoder, qp: number): string[] {
+const hevcProbeArgs = (family: HardwareEncoder) => probeArgs[family].map(arg => arg.replace(/^h264_/, 'hevc_'))
+const hevcEncoders = new Map<string, Promise<HardwareEncoder | undefined>>()
+/**
+ * The first HEVC hardware encoder that really initializes, `preferred` first. The trimmed FFmpeg
+ * has no software HEVC encoder, so there may be none.
+ */
+export function hevcExportEncoder(preferred?: HardwareEncoder): Promise<HardwareEncoder | undefined> {
+  if (process.platform !== 'win32') return Promise.resolve(undefined)
+  const key = preferred ?? 'auto'
+  let result = hevcEncoders.get(key)
+  if (!result) {
+    const families = Object.keys(probeArgs) as HardwareEncoder[]
+    const order = preferred ? [preferred, ...families.filter(family => family !== preferred)] : families
+    result = (async () => {
+      for (const family of order) {
+        try {
+          await runFfmpeg(['-v', 'error', '-f', 'lavfi', '-i', 'color=size=256x144', '-frames:v', '3', ...hevcProbeArgs(family),
+            '-f', 'null', '-'], 10000)
+          return family
+        } catch { /* Not available on this machine; try the next family. */ }
+      }
+      return undefined
+    })()
+    hevcEncoders.set(key, result)
+  }
+  return result
+}
+
+/** Constant-quality H.264 or HEVC (tagged hvc1) at the frame timing of its input. x264 is H.264 only. */
+function compatibleVideo(encoder: ExportEncoder, qp: number, codec: NativeCodec = 'h264'): string[] {
+  const h264 = codec === 'h264'
+  const tag = h264 ? [] : ['-tag:v', 'hvc1']
   switch (encoder) {
-    case 'nvenc': return ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'constqp', '-qp', String(qp), '-b:v', '0', '-bf', '0',
-      '-pix_fmt', 'yuv420p', '-fps_mode', 'vfr', '-enc_time_base', '1:1000000']
-    case 'amf': return ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', String(qp), '-qp_p', String(qp),
-      '-qp_b', String(qp), '-bf', '0', '-pix_fmt', 'nv12', '-fps_mode', 'vfr']
-    case 'qsv': return ['-c:v', 'h264_qsv', '-preset', 'medium', '-q:v', String(qp), '-bf', '0', '-pix_fmt', 'nv12', '-fps_mode', 'vfr']
-    case 'mf': return ['-c:v', 'h264_mf', '-hw_encoding', '1', '-rate_control', 'quality', '-quality', String(Math.round(100 - qp * 1.2)),
-      '-profile:v', '100', '-bf', '0', '-pix_fmt', 'nv12', '-fps_mode', 'vfr']
+    case 'nvenc': return ['-c:v', `${codec}_nvenc`, '-preset', 'p5', '-rc', 'constqp', '-qp', String(qp), '-b:v', '0', '-bf', '0',
+      '-pix_fmt', 'yuv420p', '-fps_mode', 'vfr', '-enc_time_base', '1:1000000', ...tag]
+    case 'amf': return ['-c:v', `${codec}_amf`, '-quality', 'quality', '-rc', 'cqp', '-qp_i', String(qp), '-qp_p', String(qp),
+      ...(h264 ? ['-qp_b', String(qp)] : []), '-bf', '0', '-pix_fmt', 'nv12', '-fps_mode', 'vfr', ...tag]
+    case 'qsv': return ['-c:v', `${codec}_qsv`, '-preset', 'medium', '-q:v', String(qp), '-bf', '0', '-pix_fmt', 'nv12', '-fps_mode', 'vfr', ...tag]
+    case 'mf': return ['-c:v', `${codec}_mf`, '-hw_encoding', '1', '-rate_control', 'quality', '-quality', String(Math.round(100 - qp * 1.2)),
+      ...(h264 ? ['-profile:v', '100'] : []), '-bf', '0', '-pix_fmt', 'nv12', '-fps_mode', 'vfr', ...tag]
     case 'x264': return ['-c:v', 'libx264', '-preset', 'medium', '-crf', String(qp - 1), '-pix_fmt', 'yuv420p', '-fps_mode', 'vfr']
   }
 }
@@ -63,6 +94,8 @@ function compatibleVideo(encoder: ExportEncoder, qp: number): string[] {
 export interface JobOptions {
   signal?: AbortSignal
   onProgress?: (fraction: number) => void
+  /** Tried first by the hardware encoder probe; the settings' `encoderPreference` when not auto. */
+  preferredEncoder?: HardwareEncoder
 }
 
 export const partialPath = (output: string): string => output.replace(/(\.[^.\\/]+)$/, '.partial$1')
@@ -94,21 +127,113 @@ function allAudio(info: MediaInfo, bitrate = '192k'): string[] {
     stream.codec === 'aac' ? [`-c:a:${i}`, 'copy'] : [`-c:a:${i}`, 'aac', `-b:a:${i}`, bitrate])]
 }
 
+const MiB = 1024 * 1024
+
+/**
+ * Refuses a write that would leave less than finalize's 512 MiB margin on the output's drive.
+ * `bytes` is an estimate; a write that still fills the disk fails and removes its partial.
+ */
+export async function ensureFreeSpace(output: string, bytes: number): Promise<void> {
+  const disk = await fs.statfs(path.dirname(output))
+  const needed = bytes + 512 * MiB
+  if (disk.bavail * disk.bsize < needed) {
+    throw new Error(`Not enough disk space: this needs about ${(needed / 1024 / MiB).toFixed(1)} GB free in ${path.dirname(output)}.`)
+  }
+}
+
+/**
+ * A copy counts only with a video stream and the master's duration within 1% (at least 1 s), the
+ * check finalize applies. A master whose container states no duration can only be checked for video.
+ */
+export async function verifyCopy(file: string, masterSeconds: number): Promise<void> {
+  const probe = await probeMedia(file)
+  if (!probe.video) throw new Error('The copy has no video stream')
+  const tolerance = Math.max(1, masterSeconds * 0.01)
+  if (masterSeconds > 0 && Math.abs(probe.seconds - masterSeconds) > tolerance) {
+    throw new Error(`The copy lasts ${probe.seconds.toFixed(1)} s but the original ${masterSeconds.toFixed(1)} s`)
+  }
+}
+
 /**
  * copy: the master's H.264/HEVC packets in MP4 with every audio track. small: a widely
- * compatible H.264 4:2:0 copy at the same resolution and frame timing.
+ * compatible H.264 4:2:0 copy at the same resolution and frame timing (`defaultCompression`).
  */
 export async function exportRecording(input: string, output: string, mode: 'copy' | 'small', options: JobOptions = {}): Promise<void> {
+  if (mode === 'small') {
+    await compressRecording(input, output, defaultCompression, options)
+    return
+  }
   const info = await probeMedia(input)
   const codec = info.video?.codec
-  if (mode === 'copy' && codec !== 'h264' && codec !== 'hevc') {
+  if (codec !== 'h264' && codec !== 'hevc') {
     throw new Error('This master needs H.264 conversion for MP4. Choose Compatible MP4; the original will be kept.')
   }
-  const video = mode === 'copy' ? ['-c:v', 'copy', ...(codec === 'hevc' ? ['-tag:v', 'hvc1'] : [])]
-    : compatibleVideo(await bestExportEncoder(), 24)
-  await writeNew(output, partial => runFfmpeg(['-n', '-i', input, '-map', '0:v:0', ...video, ...allAudio(info),
-    '-movflags', '+faststart', ...progressArgs(options), partial], 0,
+  await ensureFreeSpace(output, (await fs.stat(input)).size)
+  await writeNew(output, partial => runFfmpeg(['-n', '-i', input, '-map', '0:v:0', '-c:v', 'copy', ...(codec === 'hevc' ? ['-tag:v', 'hvc1'] : []),
+    ...allAudio(info), '-movflags', '+faststart', ...progressArgs(options), partial], 0,
   options.onProgress && progressReader(info.seconds, options.onProgress), options.signal))
+}
+
+export interface VideoShape {
+  width?: number
+  height?: number
+  fps?: number
+}
+
+/** The caps that apply: each only when the source exceeds it. An unknown size or rate is left alone. */
+function compressedShape(compression: CompressionOptions, source: VideoShape): { width?: number; height?: number; fps?: number } {
+  const { maxHeight, maxFps } = compression
+  const scale = maxHeight !== 'source' && source.width && source.height && source.height > maxHeight
+  return {
+    ...(scale ? { width: even(maxHeight * source.width! / source.height!), height: maxHeight } : {}),
+    ...(maxFps !== 'source' && source.fps && Math.round(source.fps) > maxFps ? { fps: maxFps } : {}),
+  }
+}
+
+/**
+ * Video arguments for a compressed copy. Scaling keeps the aspect ratio with even sides. A frame
+ * rate cap makes the output constant-rate through the fps filter; otherwise frame timing is the
+ * source's, as in the Compatible MP4.
+ */
+export function compressVideoArgs(encoder: ExportEncoder, compression: CompressionOptions, source: VideoShape): string[] {
+  const shape = compressedShape(compression, source)
+  const filters = [...(shape.fps ? [`fps=${shape.fps}`] : []), ...(shape.height ? [`scale=${shape.width}:${shape.height}:flags=bicubic`] : [])]
+  return [...(filters.length ? ['-vf', filters.join(',')] : []), ...compatibleVideo(encoder, compressionQp[compression.quality], compression.codec)]
+}
+
+export interface CompressResult {
+  bytes: number
+  encoder: ExportEncoder
+  width?: number
+  height?: number
+  fps?: number
+}
+
+/**
+ * A constant-quality copy with every audio track, scaled down or slowed only where the source
+ * exceeds a cap, verified before it takes its name. HEVC never falls back to H.264: without a
+ * working HEVC encoder this fails and says so.
+ */
+export async function compressRecording(input: string, output: string, compression: CompressionOptions,
+  options: JobOptions = {}): Promise<CompressResult> {
+  const info = await probeMedia(input)
+  const encoder = compression.codec === 'hevc' ? await hevcExportEncoder(options.preferredEncoder)
+    : await bestExportEncoder(options.preferredEncoder)
+  if (!encoder) throw new Error('No HEVC encoder works on this PC. Choose H.264 to compress this recording.')
+  const source = { width: info.video?.width, height: info.video?.height, fps: info.video?.fps }
+  const shape = compressedShape(compression, source)
+  // Bits at constant QP follow the pixels per second kept; a master already at or above the
+  // chosen QP rarely grows, and ensureFreeSpace's margin covers the rest.
+  const kept = (shape.height && source.height ? (shape.height / source.height) ** 2 : 1) * (shape.fps && source.fps ? shape.fps / source.fps : 1)
+  await ensureFreeSpace(output, (await fs.stat(input)).size * kept)
+  await writeNew(output, async partial => {
+    await runFfmpeg(['-n', '-i', input, '-map', '0:v:0', ...compressVideoArgs(encoder, compression, source), ...allAudio(info),
+      '-movflags', '+faststart', ...progressArgs(options), partial], 0,
+    options.onProgress && progressReader(info.seconds, options.onProgress), options.signal)
+    await verifyCopy(partial, info.seconds)
+  })
+  return { bytes: (await fs.stat(output)).size, encoder, width: shape.width ?? source.width, height: shape.height ?? source.height,
+    fps: shape.fps ?? source.fps }
 }
 
 export interface FitPlan {
@@ -185,7 +310,8 @@ export async function fitToSize(input: string, output: string, targetBytes: numb
   const info = await probeMedia(input)
   if (!info.video?.width || !info.video.height) throw new Error('The recording has no readable video stream')
   const plan = fitPlan({ seconds: info.seconds, width: info.video.width, height: info.video.height, fps: info.video.fps ?? 30 }, targetBytes)
-  const encoder = await bestExportEncoder()
+  const encoder = await bestExportEncoder(options.preferredEncoder)
+  await ensureFreeSpace(output, targetBytes)
   const filter = ['-vf', `fps=${plan.fps},scale=${plan.width}:${plan.height}:flags=bicubic`]
   const audio = info.audio.length ? ['-map', '0:a:0', '-c:a', 'aac', '-b:a', String(plan.audioBitrate), '-ac', '2'] : []
   const attemptsAllowed = encoder === 'x264' ? 2 : 3
@@ -214,7 +340,10 @@ export async function fitToSize(input: string, output: string, targetBytes: numb
           '-movflags', '+faststart', ...progressArgs(options), partial], 0, report(0, 1), options.signal)
       }
       bytes = (await fs.stat(partial)).size
-      if (bytes <= targetBytes) return
+      if (bytes <= targetBytes) {
+        await verifyCopy(partial, info.seconds)
+        return
+      }
       const audioBytes = (info.audio.length ? plan.audioBitrate : 0) * info.seconds / 8
       bitrate = Math.floor(bitrate * Math.max(0.5, (targetBytes * 0.97 - audioBytes) / Math.max(1, bytes - audioBytes)))
     }
@@ -255,10 +384,12 @@ export async function trimRecording(input: string, output: string, start: number
     from = [...keyframes].reverse().find(time => time <= start + 0.001) ?? 0
   }
   const duration = end - from
+  // Either mode is estimated at the master's bitrate over the kept span.
+  await ensureFreeSpace(output, (await fs.stat(input)).size * (info.seconds > 0 ? Math.min(1, duration / info.seconds) : 1))
   const mp4 = mode === 'exact' || output.endsWith('.mp4')
   const streams = mode === 'fast'
     ? ['-map', '0', '-c', 'copy', ...(info.video?.codec === 'hevc' && mp4 ? ['-tag:v', 'hvc1'] : []), '-avoid_negative_ts', 'make_zero']
-    : ['-map', '0:v:0', ...compatibleVideo(await bestExportEncoder(), 18),
+    : ['-map', '0:v:0', ...compatibleVideo(await bestExportEncoder(options.preferredEncoder), 18),
       ...(info.audio.length ? ['-map', '0:a', '-c:a', 'aac', '-b:a', '256k'] : [])]
   await writeNew(output, partial => runFfmpeg(['-n', '-ss', from.toFixed(6), '-i', input, '-t', duration.toFixed(6), ...streams,
     ...(mp4 ? ['-movflags', '+faststart'] : []), ...progressArgs(options), partial], 0,

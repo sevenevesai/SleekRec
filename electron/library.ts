@@ -3,7 +3,8 @@ import path from 'node:path'
 import { LibraryEntry, LibraryKind, SavedRecording } from '../src/recording'
 import { REPLAY_DIRECTORY } from './replay-buffer'
 import { runFfmpeg } from './ffmpeg'
-import { writeNew } from './export-recording'
+import { verifyCopy, writeNew } from './export-recording'
+import { probeMedia } from './media-probe'
 
 // Kept free of Electron imports so scripts/test-recording.cjs can exercise listing and recovery.
 
@@ -20,6 +21,7 @@ export interface DerivedSidecar {
   seconds?: number
   width?: number
   height?: number
+  warning?: string
 }
 
 /**
@@ -41,7 +43,7 @@ export function libraryPath(outputFolder: string, file: unknown, options: { fold
 function kindFromName(name: string): LibraryKind {
   if (/_replay(-\d+)?\./.test(name)) return 'replay'
   if (/_trim(-\d+)?\./.test(name)) return 'trim'
-  if (/_(export|smaller|fit-\d+MB|compatible)(-\d+)?\./.test(name)) return 'export'
+  if (/_(export|smaller|fit-\d+MB|compatible|compressed)(-\d+)?\./.test(name)) return 'export'
   return 'recording'
 }
 
@@ -66,6 +68,7 @@ function fromSidecar(entry: LibraryEntry, sidecar: Record<string, unknown>): voi
     entry.width = num(sidecar.width)
     entry.height = num(sidecar.height)
     entry.codec = str(sidecar.detail)
+    entry.warning = str(sidecar.warning)
     return
   }
   if (info) {
@@ -138,6 +141,35 @@ export async function uniqueOutput(source: string, suffix: string, extension: st
     if (!taken.some(Boolean)) return candidate
   }
   throw new Error('Too many copies with this name already exist')
+}
+
+const firstLine = (error: unknown) => String(error).replace(/^Error: /, '').split('\n')[0]
+
+/**
+ * The only code that removes a master, and only for an automatic compression the user opted into.
+ * The copy is verified against the master here, right before the move, whatever the job checked.
+ * Master and sidecar go to the Recycle Bin through `trash`, so they stay restorable; a refused
+ * check or a failed move keeps the master and comes back as a warning for the copy.
+ */
+export async function recycleMasterAfterCopy(master: string, copy: string,
+  options: { enabled: boolean; trash: (file: string) => Promise<void> }): Promise<{ recycled: boolean; warning?: string }> {
+  if (!options.enabled) return { recycled: false }
+  try {
+    const { seconds } = await probeMedia(master)
+    if (!(seconds > 0)) throw new Error('the original states no duration to compare the copy with')
+    await verifyCopy(copy, seconds)
+  } catch (error) {
+    return { recycled: false, warning: `The original was kept: ${firstLine(error)}.` }
+  }
+  try {
+    await options.trash(master)
+  } catch (error) {
+    return { recycled: false, warning: `The original could not move to the Recycle Bin (${firstLine(error)}); both files are kept.` }
+  }
+  const sidecar = `${master}.json`
+  if (!await fs.access(sidecar).then(() => true, () => false)) return { recycled: true }
+  return options.trash(sidecar).then(() => ({ recycled: true }), (error: unknown) => ({ recycled: true,
+    warning: `The original is in the Recycle Bin, but its details file ${path.basename(sidecar)} could not follow (${firstLine(error)}).` }))
 }
 
 /**

@@ -12,6 +12,8 @@ export const fitTargetsMB = [10, 25, 50, 100, 500] as const
 export type FitTargetMB = typeof fitTargetsMB[number]
 /** Any whole size in this range is a valid fit target; `fitTargetsMB` are the menu's presets. */
 export const fitTargetRangeMB = { min: 5, max: 4000 } as const
+export const isFitTargetMB = (value: unknown): value is number =>
+  Number.isInteger(value) && Number(value) >= fitTargetRangeMB.min && Number(value) <= fitTargetRangeMB.max
 
 /** Recordings larger than this many GB stay MKV on stop; 0 always makes the MP4. */
 export const mp4LimitsGB = [0, 8, 16, 32, 64] as const
@@ -259,7 +261,9 @@ export interface MediaDetails {
 export type ExportRequest =
   | { mode: 'copy' }
   | { mode: 'small' }
-  | { mode: 'fit'; targetMB: FitTargetMB }
+  | { mode: 'compress'; options: CompressionOptions }
+  /** Any whole size that passes `isFitTargetMB`. */
+  | { mode: 'fit'; targetMB: number }
 
 export interface JobProgress {
   id: string

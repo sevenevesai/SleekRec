@@ -125,7 +125,9 @@ if (!process.versions.electron) {
     const joined = await stop()
 
     // A medium master becomes an MP4 on stop; separate tracks add game and microphone tracks.
-    await api(`saveSettings({qualityPreset:'medium',micEnabled:true,micTrack:'separate',micDeviceId:'unplugged'})`)
+    // From here on every recording, not a replay, gets an automatic compressed copy.
+    await api(`saveSettings({qualityPreset:'medium',micEnabled:true,micTrack:'separate',micDeviceId:'unplugged',
+      afterRecording:'compress',compression:{codec:'h264',quality:'small',maxHeight:720,maxFps:30}})`)
     main.reload()
     await sleep(2000)
     await assert.rejects(start('GPU capture'), /microphone is unavailable/, 'A missing microphone says so')
@@ -136,6 +138,16 @@ if (!process.versions.electron) {
     await sleep(4000)
     const tracks = await stop()
     assert.match(tracks, /\.mp4$/)
+    // A recording that starts while the automatic copy encodes takes the encoder; the copy resumes after it.
+    const compressed = file => file.replace(/\.\w+$/, '_compressed.mp4')
+    const copyPartial = compressed(tracks).replace(/\.mp4$/, '.partial.mp4')
+    for (let i = 0; i < 100 && !fs.existsSync(copyPartial) && !fs.existsSync(compressed(tracks)); i++) await sleep(50)
+    await start('GPU capture')
+    const yielded = !fs.existsSync(compressed(tracks))
+    assert.ok(!fs.existsSync(copyPartial), 'A starting recording leaves no partial copy behind')
+    await sleep(1500)
+    const interrupting = await stop()
+    console.log(JSON.stringify({ automaticCopyYielded: yielded }))
 
     // Hotkey start of a remembered GPU region, then instant replay on it.
     const screen = (await api('getSources()')).find(source => source.nativeDisplay)
@@ -191,6 +203,19 @@ if (!process.versions.electron) {
       if (file !== browser) assert.match(report.info.codec, /NVENC|AMF|Quick Sync|Media Foundation/)
       console.log(JSON.stringify({ checked: path.basename(file), frames, streams, timestamps: 'strictly increasing' }))
     }
+    // One verified automatic copy per recording saved since the setting, next to its kept master; none for the replay.
+    const masters = [tracks, interrupting, area, browser]
+    for (let i = 0; i < 600 && !masters.every(file => fs.existsSync(`${compressed(file)}.json`)); i++) await sleep(100)
+    await sleep(500) // The job ends just after it writes the sidecar.
+    for (const master of masters) {
+      const sidecar = JSON.parse(fs.readFileSync(`${compressed(master)}.json`, 'utf8'))
+      assert.equal(sidecar.derivedFrom, master)
+      assert.ok(fs.existsSync(master), `${master} is kept`)
+      assert.ok(sidecar.height <= 720, `${compressed(master)} is capped at 720p`)
+    }
+    assert.ok(!fs.existsSync(compressed(replay.path)), 'Replay saves get no automatic copy')
+    console.log(JSON.stringify({ automaticCopies: masters.map(file => ({ copy: path.basename(compressed(file)),
+      masterBytes: fs.statSync(file).size, copyBytes: fs.statSync(compressed(file)).size })) }))
     const library = await api('listRecordings()')
     for (const file of expectations.keys()) assert.ok(library.some(entry => entry.path === file), `Library lists ${file}`)
     const details = await api(`mediaDetails(${JSON.stringify(tracks)})`)

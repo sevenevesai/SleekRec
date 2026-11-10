@@ -13,7 +13,15 @@ const load = (entry, name) => {
 }
 const { BrowserRecorder } = load('electron/browser-recorder.ts', 'browser')
 const { runFfmpeg, ffmpegBinary } = load('electron/ffmpeg.ts', 'ffmpeg')
-const { exportRecording, fitPlan, fitToSize, keyframeTimes, trimRecording, grabFrame } = load('electron/export-recording.ts', 'export')
+const { exportRecording, fitPlan, fitToSize, keyframeTimes, trimRecording, grabFrame, compressRecording, compressVideoArgs,
+  ensureFreeSpace, hevcExportEncoder } = load('electron/export-recording.ts', 'export')
+// The queue tells a cancelled job by its CancelledError class, so its jobs must come from the same bundle.
+const together = (name, entries) => {
+  buildSync({ stdin: { contents: entries.map(entry => `export * from './${entry}'`).join('\n'), resolveDir: root, loader: 'ts' },
+    bundle: true, platform: 'node', format: 'cjs', external: ['ffmpeg-static'], outfile: path.join(output, `${name}.cjs`) })
+  return require(path.join(output, `${name}.cjs`))
+}
+const jobs = together('jobs', ['electron/job-queue', 'electron/export-recording', 'electron/ffmpeg', 'electron/library'])
 const { pcmHeader, pcmPacket, pcmAudioFilter } = load('electron/pcm-matroska.ts', 'pcm')
 const { FramePacingMeter } = load('electron/frame-pacing.ts', 'pacing')
 const { listNativeDisplays, NativeRecorder } = load('electron/native-recorder.ts', 'native')
@@ -23,9 +31,9 @@ const { finalizeCapture, audioTrackArgs } = load('electron/finalize.ts', 'finali
 const { ReplayBuffer, REPLAY_DIRECTORY } = load('electron/replay-buffer.ts', 'replay')
 const { listLibrary, libraryPath, recoverUnfinished, uniqueOutput } = load('electron/library.ts', 'library')
 const { probeMedia, parseProbe } = load('electron/media-probe.ts', 'probe')
-const { normalizeSettings } = load('electron/settings.ts', 'stored-settings')
+const { normalizeSettings, parseExportRequest } = load('electron/settings.ts', 'stored-settings')
 const { captureEngineForSource, requestedFps, gpuSupport, clampRegion, audioTrackTitles, defaultHotkeys, isValidHotkey,
-  screenAtPoint } = load('src/recording.ts', 'settings')
+  screenAtPoint, defaultCompression } = load('src/recording.ts', 'settings')
 const helper = path.join(root, 'native', 'bin', 'windows-displays.exe')
 const settings = { outputFolder: output, qualityPreset: 'ultra' }
 const info = { engine: 'browser', codec: 'h264', width: 160, height: 96, targetFps: 120 }
@@ -542,6 +550,198 @@ test('fit-to-size picks a legible size and frame rate and lands under the target
   assert.ok(bytes > target * 0.5, 'and does not waste most of the budget')
   assert.equal(result.bytes, bytes)
   assert.ok((await probeMedia(fitted)).audio.length === 1)
+})
+
+// ---- Compression and the automatic job queue ----
+
+const argAfter = (args, flag) => args[args.indexOf(flag) + 1]
+
+test('compression scales only taller sources, caps only faster ones, maps quality to QP and tags HEVC', () => {
+  const capped = { codec: 'h264', quality: 'balanced', maxHeight: 1080, maxFps: 60 }
+  const big = compressVideoArgs('nvenc', capped, { width: 2560, height: 1440, fps: 164.9 })
+  assert.equal(argAfter(big, '-vf'), 'fps=60,scale=1920:1080:flags=bicubic')
+  assert.equal(argAfter(big, '-qp'), '24')
+  assert.ok(!compressVideoArgs('nvenc', capped, { width: 1280, height: 720, fps: 60.2 }).includes('-vf'), 'never enlarges or speeds up')
+  assert.ok(!compressVideoArgs('nvenc', { ...capped, maxHeight: 'source', maxFps: 30 }, { width: 1280, height: 720 }).includes('-vf'),
+    'an unknown rate is left alone')
+  assert.equal(argAfter(compressVideoArgs('amf', { ...capped, maxFps: 'source', maxHeight: 720 }, { width: 3440, height: 1440, fps: 60 }), '-vf'),
+    'scale=1720:720:flags=bicubic')
+  assert.equal(argAfter(compressVideoArgs('x264', { ...capped, quality: 'high' }, {}), '-crf'), '19')
+  assert.equal(argAfter(compressVideoArgs('qsv', { ...capped, quality: 'small' }, {}), '-q:v'), '28')
+  for (const family of ['nvenc', 'amf', 'qsv', 'mf']) {
+    const hevc = compressVideoArgs(family, { ...capped, codec: 'hevc' }, {})
+    assert.equal(argAfter(hevc, '-c:v'), `hevc_${family}`)
+    assert.equal(argAfter(hevc, '-tag:v'), 'hvc1')
+    assert.ok(!hevc.includes('-qp_b') && !hevc.includes('-profile:v'), `${family} HEVC gets no H.264-only option`)
+    // The default options are the Compatible MP4: no filter, QP 24, H.264.
+    const plain = compressVideoArgs(family, defaultCompression, { width: 2560, height: 1440, fps: 165 })
+    assert.ok(!plain.includes('-vf') && !plain.includes('-tag:v'))
+    assert.equal(argAfter(plain, '-c:v'), `h264_${family}`)
+  }
+})
+
+test('every compression encoder option exists in the bundled FFmpeg', async t => {
+  if (process.platform !== 'win32') { t.skip('The hardware encoders are in the Windows FFmpeg build only'); return }
+  const generic = new Set(['-c:v', '-bf', '-profile:v', '-q:v', '-b:v', '-fps_mode', '-enc_time_base', '-pix_fmt', '-tag:v', '-vf'])
+  for (const family of ['nvenc', 'amf', 'qsv', 'mf']) {
+    for (const codec of ['h264', 'hevc']) {
+      const args = compressVideoArgs(family, { ...defaultCompression, codec }, {})
+      const help = await runFfmpeg(['-h', `encoder=${codec}_${family}`])
+      assert.doesNotMatch(help, /Unknown encoder/)
+      const options = new Set([...help.matchAll(/^\s+-?([a-z0-9_-]+)\s+<\w+>/gm)].map(match => match[1]))
+      for (const arg of args.filter((value, i) => value.startsWith('-') && i % 2 === 0)) {
+        if (!generic.has(arg)) assert.ok(options.has(arg.slice(1)), `${codec}_${family} has no option ${arg}`)
+      }
+    }
+  }
+})
+
+test('a compressed copy keeps every audio track, applies the caps, verifies its duration and leaves the master alone', async () => {
+  const master = path.join(output, 'compress-master.mkv')
+  await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'testsrc2=size=1280x960:rate=60', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
+    '-f', 'lavfi', '-i', 'sine=frequency=660:sample_rate=48000', '-t', '2', '-map', '0', '-map', '1', '-map', '2',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '12', '-c:a', 'aac', master])
+  const original = await fs.readFile(master)
+  const copy = path.join(output, `compressed-${Date.now()}.mp4`)
+  const result = await compressRecording(master, copy, { codec: 'h264', quality: 'small', maxHeight: 720, maxFps: 30 })
+  const probe = await probeMedia(copy)
+  assert.deepEqual([probe.video.width, probe.video.height, Math.round(probe.video.fps)], [960, 720, 30])
+  assert.equal(probe.audio.length, 2)
+  assert.ok(Math.abs(probe.seconds - 2) < 0.2, `${probe.seconds} s`)
+  assert.equal(result.bytes, (await fs.stat(copy)).size)
+  await assert.rejects(compressRecording(master, copy, defaultCompression), /already exists/)
+  await assert.rejects(ensureFreeSpace(copy, 1e18), /needs about [\d.]+ GB free/)
+  const hevc = path.join(output, `compressed-hevc-${Date.now()}.mp4`)
+  if (await hevcExportEncoder()) {
+    await compressRecording(master, hevc, { ...defaultCompression, codec: 'hevc' })
+    const log = await runFfmpeg(['-i', hevc, '-map', '0', '-c', 'copy', '-t', '0', '-f', 'null', '-'])
+    assert.match(log, /Video: hevc.*\(hvc1 \//, 'HEVC in MP4 is tagged hvc1')
+  } else {
+    await assert.rejects(compressRecording(master, hevc, { ...defaultCompression, codec: 'hevc' }), /Choose H\.264/)
+  }
+  assert.deepEqual(await fs.readFile(master), original)
+})
+
+test('export requests from the renderer: fit sizes are whole MB from 5 to 4000, compression options are validated', () => {
+  for (const targetMB of [5, 37, 4000]) assert.deepEqual(parseExportRequest({ mode: 'fit', targetMB }, defaultCompression), { mode: 'fit', targetMB })
+  for (const targetMB of [4, 4001, 12.5, '50', null]) {
+    assert.throws(() => parseExportRequest({ mode: 'fit', targetMB }, defaultCompression), /whole size from 5 to 4000 MB/)
+  }
+  assert.deepEqual(parseExportRequest({ mode: 'compress', options: { codec: 'av1', quality: 'small', maxHeight: 1080, maxFps: 45 } }, defaultCompression),
+    { mode: 'compress', options: { codec: 'h264', quality: 'small', maxHeight: 1080, maxFps: 'source' } })
+  assert.deepEqual(parseExportRequest({ mode: 'small' }, defaultCompression), { mode: 'small' })
+  assert.throws(() => parseExportRequest({ mode: 'delete' }, defaultCompression), /Invalid export mode/)
+  assert.throws(() => parseExportRequest(undefined, defaultCompression), /Invalid export mode/)
+})
+
+test('only a finished recording queues a job, and only when After recording asks for one', () => {
+  const saved = { path: 'C:\\out\\Recording_1.mp4', info: { kind: 'recording' } }
+  const settings = { afterRecording: 'compress', compression: { ...defaultCompression, quality: 'small' }, fitTargetMB: 75 }
+  assert.deepEqual(jobs.automaticRequest(settings, saved), { mode: 'compress', options: settings.compression })
+  assert.deepEqual(jobs.automaticRequest({ ...settings, afterRecording: 'fit' }, saved), { mode: 'fit', targetMB: 75 })
+  assert.equal(jobs.automaticRequest({ ...settings, afterRecording: 'none' }, saved), undefined)
+  assert.equal(jobs.automaticRequest(settings, { ...saved, info: { kind: 'replay' } }), undefined)
+  assert.equal(jobs.automaticRequest(settings, { ...saved, path: 'C:\\out\\Recording_1.partial.webm' }), undefined)
+})
+
+function testQueue() {
+  const state = { canStart: true, ended: [], updates: [] }
+  const queue = new jobs.JobQueue({ canStartAutomatic: () => state.canStart, progress: update => state.updates.push(update),
+    settled: () => {}, automaticEnded: (job, error, cancelled) => state.ended.push({ label: job.label, message: error.message, cancelled }) })
+  return { queue, state }
+}
+const untilAborted = signal => new Promise((_, reject) => signal.addEventListener('abort', () => reject(new jobs.CancelledError()), { once: true }))
+const waitFor = async (check, what) => {
+  for (let i = 0; i < 200 && !(await check()); i++) await new Promise(resolve => setTimeout(resolve, 50))
+  assert.ok(await check(), `timed out waiting for ${what}`)
+}
+const exists = file => fs.access(file).then(() => true, () => false)
+
+test('a recording claim stops a running automatic job, waits for FFmpeg and its partial, and runs it again first afterwards', async () => {
+  const { queue, state } = testQueue()
+  const target = path.join(output, `queue-${Date.now()}.mp4`)
+  const partial = target.replace(/\.mp4$/, '.partial.mp4')
+  const log = []
+  let attempts = 0
+  queue.enqueue({ label: 'A', run: options => {
+    attempts++
+    log.push(`A${attempts}`)
+    // An endless source: only the abort ends the first attempt.
+    return attempts > 1 ? Promise.resolve() : jobs.writeNew(target, file => jobs.runFfmpeg(['-n', '-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=30',
+      '-c:v', 'libx264', '-preset', 'ultrafast', file], 0, undefined, options.signal))
+  } })
+  let bDone
+  const b = new Promise(resolve => { bDone = resolve })
+  queue.enqueue({ label: 'B', run: async () => { log.push('B'); bDone() } })
+  await waitFor(() => exists(partial), 'the partial output')
+  await assert.rejects(queue.run('Manual', async () => {}), /automatic compression is running/)
+  state.canStart = false // The recording now holds the encoder.
+  await queue.yieldToRecording()
+  assert.equal(await exists(partial), false, 'FFmpeg exited and its partial is gone before the recording starts')
+  assert.equal(await exists(target), false)
+  assert.deepEqual(state.ended, [], 'a yielded job is neither failed nor cancelled')
+  queue.startPending()
+  assert.deepEqual(log, ['A1'], 'nothing starts while a recording is busy')
+  state.canStart = true
+  queue.startPending()
+  await b
+  assert.deepEqual(log, ['A1', 'A2', 'B'], 'the interrupted job runs again before later ones')
+})
+
+test('Cancel ends an automatic job for good, a failure is reported once, and quitting drops queued jobs silently', async () => {
+  const { queue, state } = testQueue()
+  let runs = 0
+  queue.enqueue({ label: 'Cancelled', run: options => { runs++; return untilAborted(options.signal) } })
+  queue.cancel()
+  await waitFor(() => state.ended.length === 1, 'the cancel report')
+  assert.deepEqual(state.ended[0], { label: 'Cancelled', message: 'Cancelled', cancelled: true })
+  queue.startPending()
+  assert.equal(runs, 1, 'a cancelled job is not requeued')
+
+  queue.enqueue({ label: 'Broken', run: async () => { throw new Error('No HEVC encoder works on this PC.\nmore detail') } })
+  await waitFor(() => state.ended.length === 2, 'the failure report')
+  assert.deepEqual(state.ended[1], { label: 'Broken', message: 'No HEVC encoder works on this PC.\nmore detail', cancelled: false })
+  assert.equal(queue.automaticQueued, 0, 'a failed job is not retried')
+
+  let manualSignal
+  const manual = queue.run('Manual', options => { manualSignal = options.signal; return new Promise(resolve => setTimeout(() => resolve('done'), 200)) })
+  await queue.yieldToRecording()
+  assert.equal(manualSignal.aborted, false, 'a recording claim never interrupts a manual job')
+  assert.equal(await manual, 'done')
+
+  let lateRuns = 0
+  queue.enqueue({ label: 'Running', run: options => untilAborted(options.signal) })
+  queue.enqueue({ label: 'Waiting', run: async () => { lateRuns++ } })
+  assert.equal(queue.automaticQueued, 2)
+  await queue.discardAutomatic()
+  queue.startPending()
+  assert.equal(queue.automaticQueued, 0)
+  assert.equal(lateRuns, 0)
+  assert.equal(state.ended.length, 2, 'quitting reports nothing')
+  assert.ok(state.updates.filter(update => update.done).length >= 4, 'every job clears its progress bar')
+})
+
+test('the master goes to the Recycle Bin only with the opt-in and a copy that verifies against it', async () => {
+  const clip = async (name, seconds) => {
+    const file = path.join(output, name)
+    await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'testsrc2=size=160x96:rate=30', '-t', String(seconds), '-c:v', 'libx264', '-preset', 'ultrafast', file])
+    return file
+  }
+  const master = await clip('recycle-master.mp4', 3)
+  await fs.writeFile(`${master}.json`, '{}')
+  const good = await clip('recycle-good.mp4', 3)
+  const short = await clip('recycle-short.mp4', 1)
+  const trashed = []
+  const trash = async file => { trashed.push(path.basename(file)) }
+  assert.deepEqual(await jobs.recycleMasterAfterCopy(master, good, { enabled: false, trash }), { recycled: false })
+  const refused = await jobs.recycleMasterAfterCopy(master, short, { enabled: true, trash })
+  assert.equal(refused.recycled, false)
+  assert.match(refused.warning, /original was kept: The copy lasts 1\.0 s but the original 3\.0 s/)
+  assert.deepEqual(trashed, [], 'nothing moves without the opt-in or with a copy that does not verify')
+  const failed = await jobs.recycleMasterAfterCopy(master, good, { enabled: true, trash: async () => { throw new Error('Access is denied') } })
+  assert.deepEqual(failed, { recycled: false, warning: 'The original could not move to the Recycle Bin (Access is denied); both files are kept.' })
+  assert.deepEqual(await jobs.recycleMasterAfterCopy(master, good, { enabled: true, trash }), { recycled: true })
+  assert.deepEqual(trashed, ['recycle-master.mp4', 'recycle-master.mp4.json'])
 })
 
 // ---- Hardware: GPU capture on this machine's adapters ----

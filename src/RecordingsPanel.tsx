@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ExportRequest, FitTargetMB, LibraryEntry, MediaDetails, errorMessage, fitTargetsMB } from './recording'
+import { CompressionOptions, ExportRequest, FitTargetMB, LibraryEntry, MediaDetails, defaultCompression, errorMessage,
+  fitTargetsMB } from './recording'
 import { formatSeconds } from './SettingsModal'
+import { CompressionFields, FitSizeInput } from './CompressionFields'
 
 const kindLabels: Partial<Record<LibraryEntry['kind'], string>> = { replay: 'Replay', trim: 'Trim', export: 'Export', unfinished: 'Unfinished' }
 
@@ -47,9 +49,15 @@ function IconButton({ label, path, onClick }: { label: string; path: string; onC
   </button>
 }
 
+const menuItem = 'w-full px-3 py-1.5 text-left text-sm text-gray-200 hover:bg-primary/15'
+const compactField = 'w-36 bg-gray-800 rounded-md px-2 py-1 text-xs text-gray-200 border border-gray-700 focus:border-primary focus:outline-none'
+
 function ExportMenu({ onExport, disabled, container }: { onExport: (request: ExportRequest) => void; disabled: boolean; container: string }) {
   const [open, setOpen] = useState(false)
   const [up, setUp] = useState(false)
+  const [customMB, setCustomMB] = useState<number>()
+  // Set while the Compress form shows instead of the menu; starts from the settings' options.
+  const [compression, setCompression] = useState<CompressionOptions>()
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -60,25 +68,48 @@ function ExportMenu({ onExport, disabled, container }: { onExport: (request: Exp
     window.addEventListener('keydown', close)
     return () => { window.removeEventListener('mousedown', close); window.removeEventListener('keydown', close) }
   }, [open])
-  const choose = (request: ExportRequest) => { setOpen(false); onExport(request) }
+  const choose = (request: ExportRequest) => { setOpen(false); setCompression(undefined); onExport(request) }
+  const openCompress = () => {
+    window.electronAPI.getSettings().then(settings => setCompression(settings.compression), () => setCompression(defaultCompression))
+  }
+  const placement = `absolute left-0 z-40 rounded-lg border border-gray-700 bg-[#262626] shadow-xl ${up ? 'bottom-full mb-1' : 'top-full mt-1'}`
   return <div ref={ref} className="relative">
     <button className={actionStyle} disabled={disabled} aria-haspopup="menu" aria-expanded={open} onClick={() => {
       // Open upward only when it clears the sticky header; downward the page scrolls to it.
       const rect = ref.current?.getBoundingClientRect()
-      setUp(!!rect && rect.bottom + 340 > innerHeight && rect.top - 340 > 100)
+      setUp(!!rect && rect.bottom + 400 > innerHeight && rect.top - 400 > 100)
+      setCompression(undefined)
+      setCustomMB(undefined)
       setOpen(!open)
     }}>Export ▾</button>
-    {open && <div role="menu" className={`absolute left-0 z-40 w-60 rounded-lg border border-gray-700 bg-[#262626] py-1 shadow-xl ${up ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+    {open && !compression && <div role="menu" className={`${placement} w-60 py-1`}>
       <p className="px-3 pt-1 pb-1 text-[11px] uppercase tracking-wider text-gray-500">Fit under</p>
       {fitTargetsMB.map((mb: FitTargetMB) => <button key={mb} role="menuitem" onClick={() => choose({ mode: 'fit', targetMB: mb })}
-        className="w-full px-3 py-1.5 text-left text-sm text-gray-200 hover:bg-primary/15 flex justify-between">
+        className={`${menuItem} flex justify-between`}>
         <span className="tabular-nums">{mb} MB</span><span className="text-xs text-gray-500">{mb === 10 ? 'Discord free' : mb === 25 ? 'email' : mb === 500 ? 'Discord Nitro' : ''}</span>
       </button>)}
+      <div className="px-3 py-1.5 flex items-start gap-2">
+        <FitSizeInput className="w-20 bg-gray-800 rounded-md px-2 py-1 text-sm text-gray-200 tabular-nums border border-gray-700 focus:border-primary focus:outline-none"
+          onChange={setCustomMB} onEnter={() => { if (customMB) choose({ mode: 'fit', targetMB: customMB }) }} />
+        <button className={`${actionStyle} ml-auto`} disabled={!customMB} onClick={() => { if (customMB) choose({ mode: 'fit', targetMB: customMB }) }}>Fit</button>
+      </div>
       <div className="my-1 border-t border-gray-700" />
-      {container !== 'webm' && <button role="menuitem" onClick={() => choose({ mode: 'copy' })} className="w-full px-3 py-1.5 text-left text-sm text-gray-200 hover:bg-primary/15">
+      {container !== 'webm' && <button role="menuitem" onClick={() => choose({ mode: 'copy' })} className={menuItem}>
         MP4, same video <span className="block text-xs text-gray-500">No re-encode; keeps every audio track</span></button>}
-      <button role="menuitem" onClick={() => choose({ mode: 'small' })} className="w-full px-3 py-1.5 text-left text-sm text-gray-200 hover:bg-primary/15">
+      <button role="menuitem" onClick={() => choose({ mode: 'small' })} className={menuItem}>
         Compatible H.264 MP4 <span className="block text-xs text-gray-500">Same size and frame rate, plays anywhere</span></button>
+      <button role="menuitem" onClick={openCompress} className={menuItem}>
+        Compress… <span className="block text-xs text-gray-500">Choose codec, quality, size and frame rate</span></button>
+    </div>}
+    {open && compression && <div role="dialog" aria-label="Compress" className={`${placement} w-72 p-3 space-y-2`}>
+      <p className="text-[11px] uppercase tracking-wider text-gray-500">Compress a copy</p>
+      <CompressionFields value={compression} onChange={setCompression} selectClass={compactField} />
+      <p className="text-[11px] text-gray-500">Never enlarges or raises the frame rate. The original is kept.</p>
+      <div className="flex justify-end gap-1 pt-1">
+        <button className={actionStyle} onClick={() => setCompression(undefined)}>Back</button>
+        <button className="clickable rounded-md bg-primary px-3 py-1 text-xs font-medium text-black hover:bg-primary/80"
+          onClick={() => choose({ mode: 'compress', options: compression })}>Compress</button>
+      </div>
     </div>}
   </div>
 }

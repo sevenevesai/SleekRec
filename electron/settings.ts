@@ -1,6 +1,6 @@
 import path from 'node:path'
-import { AppSettings, CompressionOptions, HotkeyAction, Hotkeys, SourceRef, compressionFpsCaps, compressionHeights,
-  defaultHotkeys, fitTargetRangeMB, isValidHotkey, mp4LimitsGB, replayLengths } from '../src/recording'
+import { AppSettings, CompressionOptions, ExportRequest, HotkeyAction, Hotkeys, SourceRef, compressionFpsCaps, compressionHeights,
+  defaultHotkeys, fitTargetRangeMB, isFitTargetMB, isValidHotkey, mp4LimitsGB, replayLengths } from '../src/recording'
 
 // Kept free of Electron imports so scripts/test-recording.cjs can check stored-settings handling.
 
@@ -48,6 +48,16 @@ export function normalizeCompression(input: unknown, fallback: CompressionOption
   return result
 }
 
+/** An export request from the renderer; compression options missing or invalid take `fallback`'s. */
+export function parseExportRequest(input: unknown, fallback: CompressionOptions): ExportRequest {
+  const request = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
+  if (request.mode === 'copy' || request.mode === 'small') return { mode: request.mode }
+  if (request.mode === 'compress') return { mode: 'compress', options: normalizeCompression(request.options, fallback) }
+  if (request.mode !== 'fit') throw new Error('Invalid export mode')
+  if (!isFitTargetMB(request.targetMB)) throw new Error(`Choose a whole size from ${fitTargetRangeMB.min} to ${fitTargetRangeMB.max} MB`)
+  return { mode: 'fit', targetMB: request.targetMB }
+}
+
 export function normalizeSettings(input: Partial<AppSettings>, defaults: AppSettings): AppSettings {
   const s = { ...defaults, ...input }
   if (!['low', 'medium', 'high', 'ultra'].includes(s.qualityPreset)) s.qualityPreset = defaults.qualityPreset
@@ -58,8 +68,7 @@ export function normalizeSettings(input: Partial<AppSettings>, defaults: AppSett
   if (!(mp4LimitsGB as readonly number[]).includes(s.mp4MaxGB)) s.mp4MaxGB = defaults.mp4MaxGB
   if (!['none', 'compress', 'fit'].includes(s.afterRecording)) s.afterRecording = defaults.afterRecording
   s.compression = normalizeCompression(input.compression, defaults.compression)
-  s.fitTargetMB = Number.isInteger(s.fitTargetMB) && s.fitTargetMB >= fitTargetRangeMB.min && s.fitTargetMB <= fitTargetRangeMB.max
-    ? s.fitTargetMB : defaults.fitTargetMB
+  if (!isFitTargetMB(s.fitTargetMB)) s.fitTargetMB = defaults.fitTargetMB
   if (!['mixed', 'separate'].includes(s.micTrack)) s.micTrack = defaults.micTrack
   if (typeof s.outputFolder !== 'string' || !path.isAbsolute(s.outputFolder)) s.outputFolder = defaults.outputFolder
   s.micVolume = Number.isFinite(s.micVolume) ? Math.min(1.5, Math.max(0, s.micVolume)) : defaults.micVolume

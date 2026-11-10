@@ -3,20 +3,20 @@ import { app, BrowserWindow, ipcMain, desktopCapturer, shell, dialog, screen, po
 import path from 'node:path'
 import fs from 'node:fs'
 import { execFile } from 'node:child_process'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { AppSettings, CaptureInfo, CaptureRegion, CaptureSource, ExportRequest, HotkeyAction, MediaDetails, NativeCapabilities,
-  PCMChunk, SavedRecording, SourceRef, clampRegion, defaultCompression, defaultHotkeys, fitTargetsMB, gpuSupport,
+  PCMChunk, SavedRecording, SourceRef, clampRegion, defaultCompression, defaultHotkeys, gpuSupport,
   qualityPresets } from '../src/recording'
 import { CaptureTarget, NativeRecorder, listNativeDisplays, listWindowRects, locateNativeWindows } from './native-recorder'
 import { ReplayBuffer, removeStaleReplayBuffers } from './replay-buffer'
 import { forgetEncoders, withEncoders } from './gpu-capture'
 import { BrowserRecorder } from './browser-recorder'
-import { JobOptions, exportRecording, fitToSize, grabFrame, keyframeTimes, trimRecording } from './export-recording'
-import { CancelledError } from './ffmpeg'
+import { JobOptions, compressRecording, exportRecording, fitToSize, grabFrame, keyframeTimes, trimRecording } from './export-recording'
+import { JobQueue, automaticRequest } from './job-queue'
 import { probeMedia } from './media-probe'
-import { DerivedSidecar, libraryPath, listLibrary, recoverUnfinished, uniqueOutput } from './library'
-import { normalizeSettings } from './settings'
+import { DerivedSidecar, libraryPath, listLibrary, recoverUnfinished, recycleMasterAfterCopy, uniqueOutput } from './library'
+import { normalizeSettings, parseExportRequest } from './settings'
 import { HotkeyStatus, applyHotkeys, releaseHotkeys } from './hotkeys'
 import { AppTray, TrayMode, appIcon } from './tray'
 import { updateOnQuit } from './auto-update'
@@ -40,10 +40,19 @@ let replayBuffer: ReplayBuffer | null = null
 const stoppingReplays = new Set<ReplayBuffer>()
 let recordingBusy = false
 let recordingPaused = false
-let job: { id: string; controller: AbortController } | null = null
 let sleepBlocker: number | undefined
 let quitAfterSave = false
 let quitting = false
+const queue = new JobQueue({
+  canStartAutomatic: () => !recordingBusy && !quitting,
+  progress: update => send('job-progress', update),
+  settled: () => {
+    send('library-changed')
+    if (quitAfterSave) app.quit()
+  },
+  automaticEnded: (_job, error, cancelled) => toast(cancelled ? 'Automatic compression cancelled. The original is kept.'
+    : `Automatic compression failed: ${firstLine(error)}. The original is kept.`, cancelled ? 'info' : 'error', 6000),
+})
 let stopRecordingDiskWatch: (() => void) | undefined
 let stopReplayDiskWatch: (() => void) | undefined
 let hotkeyStatus: HotkeyStatus = {}
@@ -167,14 +176,17 @@ function releaseRecording() {
   if (sleepBlocker !== undefined) powerSaveBlocker.stop(sleepBlocker)
   sleepBlocker = undefined
   updateTray()
+  queue.startPending()
   if (quitAfterSave) app.quit()
 }
 
-function claimRecording() {
-  if (recordingBusy || job) throw new Error('Another recording or export is still active')
+/** Claims the encoder for a recording; an automatic job running now stops and resumes after it. */
+async function claimRecording() {
+  if (recordingBusy || queue.manualRunning) throw new Error('Another recording or export is still active')
   if (replayBuffer) throw new Error('Turn off instant replay before recording')
   recordingBusy = true
   sleepBlocker = powerSaveBlocker.start('prevent-display-sleep')
+  await queue.yieldToRecording()
 }
 
 const MiB = 1024 * 1024
@@ -227,7 +239,7 @@ function createWindow(show: boolean) {
   })
   loadPage(win, VITE_DEV_SERVER_URL ? '' : 'index.html')
   win.on('close', event => {
-    if (recordingBusy || job) {
+    if (recordingBusy || queue.manualRunning) {
       event.preventDefault()
       if (recordingBusy) send('stop-recording')
     } else if (!quitting && loadSettings().closeToTray) {
@@ -478,10 +490,14 @@ app.whenReady().then(() => {
 
 app.on('before-quit', event => {
   quitting = true
-  if (recordingBusy || job) {
+  if (recordingBusy || queue.manualRunning) {
     event.preventDefault()
     quitAfterSave = true
     if (recordingBusy) send('stop-recording')
+  } else if (queue.automaticQueued) {
+    // Automatic jobs live in memory only: quitting drops them, and the masters stay as they are.
+    event.preventDefault()
+    void queue.discardAutomatic().finally(() => app.quit())
   } else if (replayBuffer || stoppingReplays.size) {
     event.preventDefault()
     void quitAfterReplay()
@@ -611,7 +627,7 @@ function describeSource(info: CaptureInfo, source: CaptureSource, settings: AppS
 }
 
 ipcMain.handle('prepare-native', async (_event, sourceId: unknown, options: unknown) => {
-  claimRecording()
+  await claimRecording()
   // Local reference: renderer death can release the session (nativeRecorder = null) mid-start,
   // and this handler must still abort the recorder it created.
   let recorder: NativeRecorder | undefined
@@ -671,6 +687,7 @@ ipcMain.handle('native-stop', async (_event, id: string) => {
   try {
     const result = await recorder.stop()
     send('library-changed')
+    enqueueAfterRecording(result)
     return result
   } finally { releaseRecording() }
 })
@@ -678,7 +695,8 @@ ipcMain.handle('native-stop', async (_event, id: string) => {
 let replayArming = false
 ipcMain.handle('replay-arm', async (_event, sourceId: unknown, options: unknown) => {
   if (replayBuffer || replayArming) throw new Error('Instant replay is already on')
-  if (recordingBusy || job) throw new Error('Finish the current recording or export first')
+  // An automatic job keeps running beside replay, as a manual one may once replay is on.
+  if (recordingBusy || queue.manualRunning) throw new Error('Finish the current recording or export first')
   replayArming = true
   try {
     // A buffer still stopping may be finishing a save from its folder; let it end first. With
@@ -751,7 +769,7 @@ async function saveReplay(): Promise<SavedRecording> {
 ipcMain.handle('replay-save', () => saveReplay())
 
 ipcMain.handle('start-save-stream', async (_event, codec: 'h264' | 'vp9', info: CaptureInfo) => {
-  claimRecording()
+  await claimRecording()
   try {
     if (!['h264', 'vp9'].includes(codec)) throw new Error('Unsupported capture codec')
     const settings = loadSettings()
@@ -777,6 +795,7 @@ ipcMain.handle('stop-and-save', async (_event, id: string) => {
   try {
     const result = await recorder.stop()
     send('library-changed')
+    enqueueAfterRecording(result)
     return result
   } finally { releaseRecording() }
 })
@@ -880,24 +899,16 @@ ipcMain.handle('open-output-folder', async () => {
 
 /** One export, trim or recovery at a time, never during a recording; replay may stay armed. */
 async function runJob<T>(label: string, work: (options: JobOptions) => Promise<T>): Promise<T> {
-  if (recordingBusy || job) throw new Error('Finish the current recording or export first')
-  const id = randomUUID()
-  job = { id, controller: new AbortController() }
-  const progress = (fraction: number) => send('job-progress', { id, label, fraction })
-  progress(0)
-  try {
-    return await work({ signal: job.controller.signal, onProgress: progress })
-  } catch (error) {
-    if (error instanceof CancelledError) throw new Error(`${label.replace(/…$/, '')} cancelled`)
-    throw error
-  } finally {
-    job = null
-    send('job-progress', { id, label, fraction: 1, done: true })
-    send('library-changed')
-    if (quitAfterSave) app.quit()
-  }
+  if (recordingBusy) throw new Error('Finish the current recording or export first')
+  return queue.run(label, options => work(withEncoderPreference(options)))
 }
-ipcMain.handle('cancel-job', () => { job?.controller.abort() })
+
+/** Export encoders try the family chosen in Settings first, read when the job starts. */
+function withEncoderPreference(options: JobOptions): JobOptions {
+  const preference = loadSettings().encoderPreference
+  return preference === 'auto' ? options : { ...options, preferredEncoder: preference }
+}
+ipcMain.handle('cancel-job', () => queue.cancel())
 
 async function writeDerivedSidecar(output: string, sidecar: Omit<DerivedSidecar, 'path' | 'seconds' | 'width' | 'height'>) {
   const info = await probeMedia(output).catch(() => undefined)
@@ -914,23 +925,64 @@ ipcMain.handle('export-recording', async (_event, file: unknown, request: Export
     if (selected.canceled || !selected.filePaths[0]) return null
     input = selected.filePaths[0]
   } else input = libraryPath(outputFolder(), file)
-  if (request?.mode === 'fit') {
-    if (!fitTargetsMB.includes(request.targetMB)) throw new Error('Invalid size')
-    const output = await uniqueOutput(input, `_fit-${request.targetMB}MB`, '.mp4')
-    const result = await runJob(`Fitting under ${request.targetMB} MB…`,
-      options => fitToSize(input, output, request.targetMB * 1_000_000, options))
-    await writeDerivedSidecar(output, { derivedFrom: input, operation: 'export',
-      detail: `Fits ${request.targetMB} MB · ${result.fps} fps · ${result.encoder === 'x264' ? 'x264 two-pass' : result.encoder.toUpperCase()}` })
-    return output
-  }
-  if (request?.mode !== 'copy' && request?.mode !== 'small') throw new Error('Invalid export mode')
-  const output = await uniqueOutput(input, request.mode === 'copy' ? '_export' : '_compatible', '.mp4')
-  await runJob(request.mode === 'copy' ? 'Exporting MP4…' : 'Making a compatible MP4…',
-    options => exportRecording(input, output, request.mode as 'copy' | 'small', options))
-  await writeDerivedSidecar(output, { derivedFrom: input, operation: 'export',
-    detail: request.mode === 'copy' ? 'MP4 · same video' : 'Compatible H.264 MP4' })
-  return output
+  const valid = parseExportRequest(request, loadSettings().compression)
+  const labels = { copy: 'Exporting MP4…', small: 'Making a compatible MP4…', compress: 'Compressing…' }
+  return runJob(valid.mode === 'fit' ? `Fitting under ${valid.targetMB} MB…` : labels[valid.mode], async options => {
+    const copy = await exportCopy(input, valid, options)
+    await writeDerivedSidecar(copy.output, { derivedFrom: input, operation: 'export', detail: copy.detail })
+    return copy.output
+  })
 })
+
+/** Writes the copy a request asks for, verified when re-encoded, under a new name next to the input. */
+async function exportCopy(input: string, request: ExportRequest, options: JobOptions): Promise<{ output: string; detail: string }> {
+  if (request.mode === 'fit') {
+    const output = await uniqueOutput(input, `_fit-${request.targetMB}MB`, '.mp4')
+    const result = await fitToSize(input, output, request.targetMB * 1_000_000, options)
+    return { output, detail: `Fits ${request.targetMB} MB · ${result.fps} fps · ${result.encoder === 'x264' ? 'x264 two-pass' : result.encoder.toUpperCase()}` }
+  }
+  if (request.mode === 'compress') {
+    const output = await uniqueOutput(input, '_compressed', '.mp4')
+    const { options: chosen } = request
+    const result = await compressRecording(input, output, chosen, options)
+    return { output, detail: [`Compressed ${chosen.codec === 'hevc' ? 'HEVC' : 'H.264'}`, `${chosen.quality} quality`,
+      ...(result.height ? [`${result.height}p`] : []), ...(result.fps ? [`${Math.round(result.fps)} fps`] : []),
+      result.encoder === 'x264' ? 'x264' : result.encoder.toUpperCase()].join(' · ') }
+  }
+  const output = await uniqueOutput(input, request.mode === 'copy' ? '_export' : '_compatible', '.mp4')
+  await exportRecording(input, output, request.mode, options)
+  return { output, detail: request.mode === 'copy' ? 'MP4 · same video' : 'Compatible H.264 MP4' }
+}
+
+const firstLine = (error: unknown) => String(error).replace(/^Error: /, '').split('\n')[0]
+const formatSize = (bytes: number) => bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`
+
+/**
+ * Queues the job Settings > After recording asks for. Runs after the save result exists, outside
+ * the recorders' stop sequence. Options are the ones in force when the recording ended; the
+ * recycle opt-in is read when the copy is done, so turning it off meanwhile is honoured.
+ */
+function enqueueAfterRecording(saved: SavedRecording) {
+  const settings = loadSettings()
+  const request = automaticRequest(settings, saved)
+  if (!request || quitting) return
+  const master = saved.path
+  queue.enqueue({
+    label: request.mode === 'fit' ? `Fitting the new recording under ${request.targetMB} MB…` : 'Compressing the new recording…',
+    run: async options => {
+      const before = (await fs.promises.stat(master)).size
+      const copy = await exportCopy(master, request, withEncoderPreference(options))
+      const after = (await fs.promises.stat(copy.output)).size
+      const recycle = await recycleMasterAfterCopy(master, copy.output,
+        { enabled: loadSettings().recycleMasterAfterCompress, trash: file => shell.trashItem(file) })
+      await writeDerivedSidecar(copy.output, { derivedFrom: master, operation: 'export', detail: copy.detail,
+        ...(recycle.warning ? { warning: recycle.warning } : {}) })
+      const verb = request.mode === 'fit' ? 'Fitted' : 'Compressed'
+      toast(`${verb} ${formatSize(before)} to ${formatSize(after)}${recycle.recycled ? '. The original is in the Recycle Bin.' : ''}`
+        + (recycle.warning ? ` ${recycle.warning}` : ''), recycle.warning ? 'error' : 'info', recycle.warning ? 8000 : 5000)
+    },
+  })
+}
 
 ipcMain.handle('trim-recording', async (_event, file: unknown, start: number, end: number, mode: 'fast' | 'exact') => {
   const input = libraryPath(outputFolder(), file)
