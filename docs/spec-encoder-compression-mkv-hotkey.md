@@ -33,11 +33,9 @@ every frame to system memory. A free three-way choice does not exist on the zero
   on the GPU driving Display 2; using Quick Sync".
 - Settings shows one row per adapter with its available families, and the preference dropdown
   lists only families some adapter offers, plus Auto.
-- `bestExportEncoder` tries the preferred family first. Add `x264` as an explicit export choice;
-  it gives the best quality per byte and is otherwise reachable only on machines with no GPU
-  encoder.
-- Ultra stays NVENC-only (`captureEngineForSource`); a non-NVENC preference with Ultra is refused
-  with the existing error.
+- `bestExportEncoder(preferred)` tries the preferred family first; exports pass the setting.
+- Ultra stays NVENC-only. A preference never refuses a recording: on an adapter that offers
+  NVENC, Ultra uses it whatever the preference says, and the card says so.
 
 **Phase 2, only with measurements.** Cross-adapter encoding for hybrid laptops: panel on the
 iGPU, encode on the idle dGPU, through `hwdownload` and an upload. It costs a copy per frame (the
@@ -51,7 +49,8 @@ a probed family; AMF and QSV remain "built, unverified on hardware" (`roadmap.md
 the UI must not call them tested.
 
 **Not included.** AV1 (`av1_nvenc`, `av1_amf`, `av1_qsv`): needs the encoders in the trimmed
-FFmpeg build, a third `NativeCodec`, and editor-compatibility checks. Separate item.
+FFmpeg build, a third `NativeCodec`, and editor-compatibility checks. Separate item. A user-facing
+x264 export choice: one more control for a gain few users would notice.
 
 **Tests.** Unit: selection given a probe result and a preference (honoured, unavailable, Ultra).
 Unit: export encoder order with a preference. Smoke: `npm run test:recording` with preference

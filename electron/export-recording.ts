@@ -17,26 +17,33 @@ const probeArgs: Record<Exclude<ExportEncoder, 'x264'>, string[]> = {
   mf: ['-c:v', 'h264_mf', '-hw_encoding', '1', '-pix_fmt', 'nv12'],
 }
 
-let exportEncoder: Promise<ExportEncoder> | undefined
+type HardwareEncoder = Exclude<ExportEncoder, 'x264'>
+const exportEncoders = new Map<string, Promise<ExportEncoder>>()
 /**
- * The first H.264 hardware encoder that really initializes from system-memory frames. Use at
- * least 256x144 for the probe: GPUs reject 64x64 and the export would wrongly fall back to the CPU.
+ * The first H.264 hardware encoder that really initializes from system-memory frames, trying
+ * `preferred` before the rest. Use at least 256x144 for the probe: GPUs reject 64x64 and the
+ * export would wrongly fall back to the CPU.
  */
-export function bestExportEncoder(): Promise<ExportEncoder> {
+export function bestExportEncoder(preferred?: HardwareEncoder): Promise<ExportEncoder> {
   if (process.platform !== 'win32') return Promise.resolve('x264')
-  if (!exportEncoder) {
-    exportEncoder = (async () => {
-      for (const [family, args] of Object.entries(probeArgs) as [Exclude<ExportEncoder, 'x264'>, string[]][]) {
+  const key = preferred ?? 'auto'
+  let result = exportEncoders.get(key)
+  if (!result) {
+    const families = Object.keys(probeArgs) as HardwareEncoder[]
+    const order = preferred ? [preferred, ...families.filter(family => family !== preferred)] : families
+    result = (async () => {
+      for (const family of order) {
         try {
-          await runFfmpeg(['-v', 'error', '-f', 'lavfi', '-i', 'color=size=256x144', '-frames:v', '3', ...args,
+          await runFfmpeg(['-v', 'error', '-f', 'lavfi', '-i', 'color=size=256x144', '-frames:v', '3', ...probeArgs[family],
             '-f', 'null', '-'], 10000)
           return family
         } catch { /* Not available on this machine; try the next family. */ }
       }
       return 'x264'
     })()
+    exportEncoders.set(key, result)
   }
-  return exportEncoder
+  return result
 }
 
 /** Constant-quality H.264 at the source resolution and frame timing. */
