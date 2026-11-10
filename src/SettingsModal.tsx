@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { FrameRate, HotkeyAction, NativeCapabilities, ReplaySeconds, encoderLabels, isValidHotkey, replayLengths } from './recording'
+import { EncoderFamily, FrameRate, HotkeyAction, NativeCapabilities, ReplaySeconds, encoderLabels, isValidHotkey, replayLengths } from './recording'
 
 export const hotkeyNames: Record<HotkeyAction, string> = {
   record: 'Start or stop recording', stop: 'Stop and save', pause: 'Pause or resume',
@@ -178,6 +178,13 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: {
   ]
   const currentPreset = presets?.[local.qualityPreset]
   const adapters = capabilities?.adapters ?? []
+  const adapterFamilies = adapters.map(a => new Set([...(a.encoders.h264 ?? []), ...(a.encoders.hevc ?? [])]))
+  const offeredFamilies = new Set(adapterFamilies.flatMap(families => [...families]))
+  // A stored preference this PC lacks stays listed so it can be changed back.
+  const encoderChoices = (Object.keys(encoderLabels) as EncoderFamily[])
+    .filter(family => offeredFamilies.has(family) || family === local.encoderPreference)
+  // A preference changes nothing unless one adapter offers a choice.
+  const showEncoderChoice = local.encoderPreference !== 'auto' || adapterFamilies.some(families => families.size > 1)
   const replayAvailable = capabilities?.available !== false
 
   return (
@@ -209,8 +216,9 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: {
               <option value="browser">Browser — windows and other platforms</option>
             </select>
             {adapters.map(adapter => <p key={adapter.name} className="text-xs text-gray-400">
-              {adapter.name}: {adapter.encoders.h264 || adapter.encoders.hevc
-                ? `H.264 ${adapter.encoders.h264 ? `via ${encoderLabels[adapter.encoders.h264]}` : 'unavailable'} · HEVC ${adapter.encoders.hevc ? `via ${encoderLabels[adapter.encoders.hevc]}` : 'unavailable'}`
+              {adapter.name}: {adapter.encoders.h264?.length || adapter.encoders.hevc?.length
+                ? (['h264', 'hevc'] as const).map(codec => `${codec === 'h264' ? 'H.264' : 'HEVC'} ${adapter.encoders[codec]?.length
+                  ? `via ${adapter.encoders[codec]!.map(family => encoderLabels[family]).join(', ')}` : 'unavailable'}`).join(' · ')
                 : 'no GPU encoder initialized'}
             </p>)}
             {capabilities?.reason && <p className="text-xs text-yellow-300">{capabilities.reason}</p>}
@@ -226,6 +234,17 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: {
               <option value="h264">H.264 — plays everywhere</option>
               <option value="hevc">HEVC — smaller files, newer players</option>
             </select>
+            {showEncoderChoice && <>
+              <label className="block text-sm text-gray-400">Preferred encoder</label>
+              <select aria-label="Preferred encoder" value={local.encoderPreference} className={selectStyle}
+                onChange={e => set({ encoderPreference: e.target.value as AppSettings['encoderPreference'] })}>
+                <option value="auto">Automatic — the display GPU's own encoder, else Media Foundation</option>
+                {encoderChoices.map(family => <option key={family} value={family}>
+                  {encoderLabels[family]}{family === 'mf' ? ' — copies each frame through the CPU' : ''}
+                  {capabilities && !offeredFamilies.has(family) ? ' (not available on this PC)' : ''}</option>)}
+              </select>
+              <p className="text-xs text-gray-500">Used on screens whose GPU offers it; otherwise the screen's card names the encoder used instead. Ultra always uses NVIDIA NVENC.</p>
+            </>}
             <p className="text-xs text-gray-500">GPU recordings capture into a crash-safe MKV and become an MP4 when you stop. Full-screen games: select the screen; delivered frame rate depends on GPU headroom, so watch the live rate during motion.</p>
           </Section>
 

@@ -10,7 +10,7 @@ import { AppSettings, CaptureInfo, CaptureRegion, CaptureSource, ExportRequest, 
   qualityPresets } from '../src/recording'
 import { CaptureTarget, NativeRecorder, listNativeDisplays, listWindowRects, locateNativeWindows } from './native-recorder'
 import { ReplayBuffer, removeStaleReplayBuffers } from './replay-buffer'
-import { withEncoders } from './gpu-capture'
+import { forgetEncoders, withEncoders } from './gpu-capture'
 import { BrowserRecorder } from './browser-recorder'
 import { JobOptions, exportRecording, fitToSize, grabFrame, keyframeTimes, trimRecording } from './export-recording'
 import { CancelledError } from './ffmpeg'
@@ -597,7 +597,7 @@ ipcMain.handle('native-capabilities', async (): Promise<NativeCapabilities> => {
   const adapters = [...new Map(displays.map(d => [d.luid, d])).values()].map(d => ({ name: d.adapterName,
     encoders: d.encoders ?? {}, ...(d.probeError ? { error: d.probeError } : {}) }))
   if (!displays.length) return { available: false, reason: 'The native display helper found no displays. Other sources use the browser recorder.', adapters }
-  const ready = adapters.filter(a => a.encoders.h264 || a.encoders.hevc)
+  const ready = adapters.filter(a => a.encoders.h264?.length || a.encoders.hevc?.length)
   return ready.length ? { available: true, adapters } : { available: false, adapters,
     reason: `No GPU encoder initialized on ${adapters.map(a => a.name).join(', ')}. Choose Browser in Settings to record with the slower recorder.` }
 })
@@ -619,7 +619,12 @@ ipcMain.handle('prepare-native', async (_event, sourceId: unknown, options: unkn
       stats => {
         send('recording-stats', stats)
         overlayWin?.webContents.send('recording-stats', stats)
-      }, message => send('recording-error', message), displayHelper,
+      }, message => {
+        // Only the next start may pick another family: parts with different codec parameters
+        // cannot be stream-copied into one file.
+        forgetEncoders(target.display.luid)
+        send('recording-error', message)
+      }, displayHelper,
       fraction => send('finalize-progress', fraction))
     nativeRecorder = recorder
     describeSource(recorder.info, source, settings)
@@ -679,7 +684,10 @@ ipcMain.handle('replay-arm', async (_event, sourceId: unknown, options: unknown)
     await removeStaleReplayBuffers(settings.outputFolder)
     const { target, source } = await resolveTarget(sourceRef(sourceId, options), settings)
     const buffer = new ReplayBuffer(target, settings, seconds => send('replay-status', seconds),
-      message => send('replay-error', message), displayHelper)
+      message => {
+        forgetEncoders(target.display.luid)
+        send('replay-error', message)
+      }, displayHelper)
     describeSource(buffer.info, source, settings)
     replayBuffer = buffer
     try {

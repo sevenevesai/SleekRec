@@ -151,8 +151,8 @@ export interface NativeDisplay {
   deviceId: number
   adapterName: string
   luid: string
-  /** Families whose real capture probe succeeded on this adapter, per codec. */
-  encoders?: Partial<Record<NativeCodec, EncoderFamily>>
+  /** Families whose real capture probe succeeded on this adapter, per codec, in `familiesFor` order. */
+  encoders?: Partial<Record<NativeCodec, EncoderFamily[]>>
   probeError?: string
 }
 
@@ -276,7 +276,7 @@ export interface PCMChunk {
 
 export interface GpuAdapterStatus {
   name: string
-  encoders: Partial<Record<NativeCodec, EncoderFamily>>
+  encoders: Partial<Record<NativeCodec, EncoderFamily[]>>
   error?: string
 }
 
@@ -286,28 +286,44 @@ export interface NativeCapabilities {
   adapters?: GpuAdapterStatus[]
 }
 
-export type GpuSupport = { ok: true; family: EncoderFamily } | { ok: false; reason: string }
+export type GpuSupport = { ok: true; family: EncoderFamily; note?: string } | { ok: false; reason: string }
+export type EncoderSettings = Pick<AppSettings, 'nativeCodec' | 'qualityPreset' | 'encoderPreference'>
 
-/** Whether a screen records on the GPU with these settings, and on which encoder. */
-export function gpuSupport(display: NativeDisplay, settings: Pick<AppSettings, 'nativeCodec' | 'qualityPreset'>): GpuSupport {
+/**
+ * The family a capture uses from an adapter's working families: the preferred one when offered,
+ * else the first. Undefined for Ultra without NVENC: never substitute lossy encoding for its
+ * lossless 4:4:4 mode, and a preference must not refuse a recording NVENC can make.
+ */
+export function selectEncoder(families: EncoderFamily[], settings: Pick<AppSettings, 'qualityPreset' | 'encoderPreference'>): EncoderFamily | undefined {
+  if (settings.qualityPreset === 'ultra') return families.includes('nvenc') ? 'nvenc' : undefined
+  const preferred = settings.encoderPreference
+  return preferred !== 'auto' && families.includes(preferred) ? preferred : families[0]
+}
+
+/** Whether a screen records on the GPU with these settings, on which encoder, and why not the preferred one. */
+export function gpuSupport(display: NativeDisplay, settings: EncoderSettings): GpuSupport {
   if (display.rotation > 1) return { ok: false, reason: 'GPU capture supports landscape displays only. Rotate the display or choose Browser in Settings.' }
-  const family = display.encoders?.[settings.nativeCodec]
-  if (!family) {
-    const [codec, other] = settings.nativeCodec === 'hevc' ? ['HEVC', 'h264'] as const : ['H.264', 'hevc'] as const
+  const families = display.encoders?.[settings.nativeCodec] ?? []
+  const [codec, other] = settings.nativeCodec === 'hevc' ? ['HEVC', 'h264'] as const : ['H.264', 'hevc'] as const
+  if (!families.length) {
     return { ok: false, reason: `No GPU encoder on ${display.adapterName} accepted ${codec} capture.` +
-      (display.encoders?.[other] ? ` Choose ${other === 'h264' ? 'H.264' : 'HEVC'} in Settings.`
+      (display.encoders?.[other]?.length ? ` Choose ${other === 'h264' ? 'H.264' : 'HEVC'} in Settings.`
         : ' Choose Browser in Settings to use the slower recorder.') +
       (display.probeError ? `\n${display.probeError}` : '') }
   }
-  // Never substitute lossy encoding for Ultra: its lossless 4:4:4 mode is NVENC's.
-  if (settings.qualityPreset === 'ultra' && family !== 'nvenc') {
-    return { ok: false, reason: `Ultra's lossless 4:4:4 needs NVIDIA NVENC; ${display.adapterName} uses ${encoderLabels[family]}. Choose High in Settings.` }
+  const family = selectEncoder(families, settings)
+  if (!family) {
+    return { ok: false, reason: `Ultra's lossless 4:4:4 needs NVIDIA NVENC; ${display.adapterName} uses ${encoderLabels[families[0]]}. Choose High in Settings.` }
   }
-  return { ok: true, family }
+  const preferred = settings.encoderPreference
+  if (preferred === 'auto' || preferred === family) return { ok: true, family }
+  return { ok: true, family, note: settings.qualityPreset === 'ultra'
+    ? `Ultra's lossless 4:4:4 needs ${encoderLabels.nvenc}; using it instead of ${encoderLabels[preferred]}.`
+    : `${encoderLabels[preferred]} ${codec} is not available on ${display.adapterName}; using ${encoderLabels[family]}.` }
 }
 
 export function captureEngineForSource(source: CaptureSource, setting: RecordingEngine,
-  settings?: Pick<AppSettings, 'nativeCodec' | 'qualityPreset'>): 'native' | 'browser' {
+  settings?: EncoderSettings): 'native' | 'browser' {
   if (setting === 'browser') return 'browser'
   if (source.nativeDisplay) {
     if (!settings) return 'native'

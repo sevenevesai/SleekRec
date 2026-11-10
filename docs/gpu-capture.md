@@ -21,8 +21,23 @@ adapter. Two FFmpeg facts make the explicit adapter safe:
   vendor, device, name and LUID per output; never derive DXGI indices from Electron screen IDs.
 
 Each adapter is probed once per app session, per codec, by running the real capture graph for two
-frames (`withEncoders`). The first family in vendor order that opens the expected adapter wins;
-a probe that found nothing retries after a minute. Settings and the picker show the result.
+frames (`withEncoders`). Every family in vendor order (`familiesFor`) is tried, and each one that
+opens the expected adapter is listed; a family is never listed from the vendor ID alone. The two
+codecs probe in parallel, but the families of one codec run one after another: ddagrab refuses a
+fifth concurrent duplication ("Too many open duplication sessions"), which would hide a working
+family. On the RTX 2080 Ti probing NVENC and MF took about 0.8 s against 0.35 s for NVENC alone;
+the picker waits for it once per session. A probe that found nothing retries after a minute, and
+a capture that exits unexpectedly drops its adapter's probe so the next start probes again.
+
+`gpuSupport` picks the family at start, for recordings and instant replay alike. Automatic takes
+the first listed family. `encoderPreference` takes the preferred family when the display's adapter
+lists it for the chosen codec; otherwise the first listed family, and the source card says why,
+for example "NVIDIA NVENC H.264 is not available on AMD Radeon; using AMD AMF." Ultra uses NVENC
+whenever the adapter lists it, whatever the preference, with a note when they differ; without
+NVENC it is refused as below. A preference never refuses a recording. A recording keeps its family
+across pauses and failures: parts with different codec parameters cannot be stream-copied into one
+file. The sidecar's `encoder` names the family used. Settings lists every working family per
+adapter and offers the preference only when one adapter lists more than one family.
 
 | Adapter | Family | Path from the BGRA D3D11 frame | Rate control |
 |---|---|---|---|

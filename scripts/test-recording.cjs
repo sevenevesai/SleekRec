@@ -16,7 +16,7 @@ const { runFfmpeg, ffmpegBinary } = load('electron/ffmpeg.ts', 'ffmpeg')
 const { exportRecording, fitPlan, fitToSize, keyframeTimes, trimRecording, grabFrame } = load('electron/export-recording.ts', 'export')
 const { pcmHeader, pcmPacket, pcmAudioFilter } = load('electron/pcm-matroska.ts', 'pcm')
 const { FramePacingMeter } = load('electron/frame-pacing.ts', 'pacing')
-const { listNativeDisplays } = load('electron/native-recorder.ts', 'native')
+const { listNativeDisplays, NativeRecorder } = load('electron/native-recorder.ts', 'native')
 const { captureDeviceArgs, captureEncoderArgs, captureGraph, encoderName, openedExpectedAdapter, withEncoders } =
   load('electron/gpu-capture.ts', 'gpu')
 const { finalizeCapture, audioTrackArgs } = load('electron/finalize.ts', 'finalize')
@@ -250,15 +250,18 @@ test('stored settings from older versions gain defaults, and invalid hotkeys and
 })
 
 const display = { adapter: 0, output: 0, x: -2560, y: 0, width: 2560, height: 1440, refreshRate: 165, rotation: 1, hdr: false,
-  vendorId: 0x1002, deviceId: 0x164e, adapterName: 'AMD Radeon', luid: '0:1', encoders: { h264: 'amf' } }
+  vendorId: 0x1002, deviceId: 0x164e, adapterName: 'AMD Radeon', luid: '0:1', encoders: { h264: ['amf', 'mf'] } }
+const nvidia = { ...display, vendorId: 0x10de, deviceId: 0x1e07, adapterName: 'NVIDIA RTX', luid: '0:2',
+  encoders: { h264: ['nvenc', 'mf'], hevc: ['nvenc'] } }
 
 test('GPU support names the encoder, refuses lossy Ultra on non-NVIDIA adapters, and crops to even sizes inside the display', () => {
-  assert.deepEqual(gpuSupport(display, { nativeCodec: 'h264', qualityPreset: 'high' }), { ok: true, family: 'amf' })
-  assert.match(gpuSupport(display, { nativeCodec: 'hevc', qualityPreset: 'high' }).reason, /accepted HEVC.*Choose H\.264/)
-  assert.match(gpuSupport(display, { nativeCodec: 'h264', qualityPreset: 'ultra' }).reason, /needs NVIDIA NVENC/)
-  assert.match(gpuSupport({ ...display, rotation: 2 }, { nativeCodec: 'h264', qualityPreset: 'high' }).reason, /landscape/)
+  const auto = { nativeCodec: 'h264', qualityPreset: 'high', encoderPreference: 'auto' }
+  assert.deepEqual(gpuSupport(display, auto), { ok: true, family: 'amf' })
+  assert.match(gpuSupport(display, { ...auto, nativeCodec: 'hevc' }).reason, /accepted HEVC.*Choose H\.264/)
+  assert.match(gpuSupport(display, { ...auto, qualityPreset: 'ultra' }).reason, /needs NVIDIA NVENC/)
+  assert.match(gpuSupport({ ...display, rotation: 2 }, auto).reason, /landscape/)
   assert.throws(() => captureEngineForSource({ id: 'screen:1:0', name: 'S', thumbnail: '', nativeDisplay: display }, 'auto',
-    { nativeCodec: 'h264', qualityPreset: 'ultra' }), /NVENC/)
+    { ...auto, qualityPreset: 'ultra' }), /NVENC/)
   assert.deepEqual(clampRegion({ x: -2561, y: -5, width: 641.4, height: 361 }, display), { x: -2560, y: 0, width: 640, height: 356 })
   assert.deepEqual(clampRegion({ x: -2559, y: 1, width: 641, height: 362 }, display), { x: -2558, y: 2, width: 640, height: 360 },
     'odd offsets move inward to even ones, keeping the far edges, and sizes round down to even')
@@ -267,6 +270,33 @@ test('GPU support names the encoder, refuses lossy Ultra on non-NVIDIA adapters,
   assert.deepEqual(audioTrackTitles({ systemAudio: true, micEnabled: true, micTrack: 'separate' }), ['Game + microphone', 'Game', 'Microphone'])
   assert.deepEqual(audioTrackTitles({ systemAudio: true, micEnabled: true, micTrack: 'mixed' }), ['Game + microphone'])
   assert.deepEqual(audioTrackTitles({ systemAudio: false, micEnabled: true, micTrack: 'separate' }), ['Microphone'])
+})
+
+test('a preferred encoder is used when the adapter offers it; otherwise the first working one with a note, and Ultra stays on NVENC', () => {
+  const high = { nativeCodec: 'h264', qualityPreset: 'high', encoderPreference: 'auto' }
+  assert.deepEqual(gpuSupport(nvidia, high), { ok: true, family: 'nvenc' }, 'Automatic keeps the first family in vendor order')
+  assert.deepEqual(gpuSupport(nvidia, { ...high, encoderPreference: 'mf' }), { ok: true, family: 'mf' })
+  assert.deepEqual(gpuSupport(display, { ...high, encoderPreference: 'mf' }), { ok: true, family: 'mf' })
+  assert.deepEqual(gpuSupport(nvidia, { ...high, encoderPreference: 'nvenc' }), { ok: true, family: 'nvenc' }, 'no note when honoured')
+
+  const elsewhere = gpuSupport(display, { ...high, encoderPreference: 'nvenc' })
+  assert.equal(elsewhere.family, 'amf', "the adapter's first family")
+  assert.equal(elsewhere.note, 'NVIDIA NVENC H.264 is not available on AMD Radeon; using AMD AMF.')
+  const otherCodec = gpuSupport(nvidia, { ...high, nativeCodec: 'hevc', encoderPreference: 'mf' })
+  assert.equal(otherCodec.family, 'nvenc')
+  assert.match(otherCodec.note, /Media Foundation HEVC is not available on NVIDIA RTX; using NVIDIA NVENC/)
+  assert.equal(captureEngineForSource({ id: 'screen:1:0', name: 'S', thumbnail: '', nativeDisplay: display }, 'auto',
+    { ...high, encoderPreference: 'qsv' }), 'native', 'a preference never refuses a recording')
+
+  const ultra = gpuSupport(nvidia, { ...high, qualityPreset: 'ultra', encoderPreference: 'mf' })
+  assert.equal(ultra.family, 'nvenc', 'lossless 4:4:4 is never substituted by the preferred lossy encoder')
+  assert.match(ultra.note, /Ultra's lossless 4:4:4 needs NVIDIA NVENC; using it instead of Media Foundation/)
+  assert.deepEqual(gpuSupport(nvidia, { ...high, qualityPreset: 'ultra', encoderPreference: 'nvenc' }), { ok: true, family: 'nvenc' })
+  const refused = gpuSupport(display, { ...high, qualityPreset: 'ultra', encoderPreference: 'amf' })
+  assert.equal(refused.ok, false)
+  assert.match(refused.reason, /needs NVIDIA NVENC; AMD Radeon uses AMD AMF\. Choose High/)
+  assert.equal(gpuSupport({ ...nvidia, encoders: { h264: ['mf'] } }, { ...high, qualityPreset: 'ultra' }).ok, false,
+    'an NVIDIA adapter whose NVENC probe failed cannot record Ultra')
 })
 
 test('capture graphs crop on the GPU relative to the display, convert per vendor, and detect a silently substituted adapter', () => {
@@ -508,16 +538,15 @@ test('fit-to-size picks a legible size and frame rate and lands under the target
 async function gpuDisplays(t) {
   if (process.platform !== 'win32' || !(await fs.stat(helper).catch(() => null))) { t.skip('The native helper is not built'); return [] }
   const displays = await withEncoders(await listNativeDisplays(helper))
-  if (!displays.some(d => d.encoders?.h264)) { t.skip('No GPU encoder initialized on this machine'); return [] }
+  if (!displays.some(d => d.encoders?.h264?.length)) { t.skip('No GPU encoder initialized on this machine'); return [] }
   return displays
 }
 
 test('GPU capture records a cropped region at the requested size through every working family on the display adapter', async t => {
   const displays = await gpuDisplays(t)
-  const target = displays.find(d => d.encoders?.h264)
+  const target = displays.find(d => d.encoders?.h264?.length)
   if (!target) return
-  const families = [target.encoders.h264, ...(target.vendorId === 0x10de ? ['mf'] : [])]
-  for (const family of [...new Set(families)]) {
+  for (const family of target.encoders.h264) {
     const file = path.join(output, `gpu-${family}.mkv`)
     const region = { x: target.x + 64, y: target.y + 32, width: 640, height: 360 }
     const log = await runFfmpeg(['-y', '-v', 'info', ...captureDeviceArgs(target), '-filter_complex', captureGraph({ display: target, family, fps: 60, region }),
@@ -530,12 +559,12 @@ test('GPU capture records a cropped region at the requested size through every w
 
 test('instant replay saves a clip covering the requested length that ends after the save request', async t => {
   const displays = await gpuDisplays(t)
-  const target = displays.find(d => d.encoders?.h264)
+  const target = displays.find(d => d.encoders?.h264?.length)
   if (!target) return
   const folder = path.join(output, 'replay-run')
   await fs.rm(folder, { recursive: true, force: true })
   const errors = []
-  const replay = new ReplayBuffer({ display: target, family: target.encoders.h264 },
+  const replay = new ReplayBuffer({ display: target, family: target.encoders.h264[0] },
     { ...defaults, outputFolder: folder, systemAudio: false, frameRate: 30, replaySeconds: 30 }, () => {}, message => errors.push(message))
   await replay.start()
   await replay.waitUntilReady()
@@ -549,5 +578,29 @@ test('instant replay saves a clip covering the requested length that ends after 
   assert.match(path.basename(saved.path), /^Recording_.+_replay\.mp4$/)
   await replay.stop()
   await assert.rejects(fs.stat(path.join(folder, REPLAY_DIRECTORY, replay.id.slice(0, 8))), /ENOENT/, 'stop deletes the ring')
+  assert.deepEqual(errors, [])
+})
+
+test('a recording with Media Foundation preferred captures on h264_mf and its sidecar names it', async t => {
+  const displays = await gpuDisplays(t)
+  if (!displays.length) return
+  const target = displays.find(d => d.encoders?.h264?.includes('mf'))
+  if (!target) { t.skip('Media Foundation H.264 did not initialize on any GPU display'); return }
+  const folder = path.join(output, 'preference-run')
+  await fs.rm(folder, { recursive: true, force: true })
+  const recording = { ...defaults, outputFolder: folder, systemAudio: false, frameRate: 30, encoderPreference: 'mf' }
+  const support = gpuSupport(target, recording)
+  assert.deepEqual(support, { ok: true, family: 'mf' })
+  const errors = []
+  const recorder = new NativeRecorder({ display: target, family: support.family }, recording, () => {}, message => errors.push(message))
+  await recorder.startSegment()
+  await recorder.waitUntilReady()
+  await new Promise(resolve => setTimeout(resolve, 2000))
+  const saved = await recorder.stop()
+  const sidecar = JSON.parse(await fs.readFile(`${saved.path}.json`, 'utf8'))
+  assert.equal(sidecar.info.encoder, 'h264_mf')
+  assert.equal(sidecar.info.codec, 'H.264 / Media Foundation')
+  assert.equal((await probeMedia(saved.path)).video.codec, 'h264')
+  assert.ok(saved.stats.frames > 0)
   assert.deepEqual(errors, [])
 })

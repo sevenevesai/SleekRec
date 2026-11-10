@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { CaptureAudio } from './capture-audio'
 import { CaptureSource, CaptureInfo, CaptureRegion, JobProgress, LibraryEntry, MediaDetails, NativeCapabilities, RecordingStats,
   SavedRecording, SourceRef, captureBitrate, captureEngineForSource, defaultCompression, defaultHotkeys, encoderLabels, gpuSupport, qualityPresets,
-  errorMessage, requestedFps } from './recording'
+  errorMessage, requestedFps, selectEncoder } from './recording'
 import { SettingsModal, formatSeconds, hotkeyLabel } from './SettingsModal'
 import { RecordingsPanel, formatBytes } from './RecordingsPanel'
 import { TrimEditor } from './TrimEditor'
@@ -504,7 +504,10 @@ function MainApp() {
   const buttonStyle = 'clickable rounded-lg bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
   const secondaryAction = 'clickable flex-1 px-3 py-2 text-xs text-left hover:bg-primary/10 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary'
   const keys = settings.hotkeys
-  const readyAdapters = capabilities?.adapters?.filter(a => a.encoders.h264 || a.encoders.hevc) ?? []
+  const readyAdapters = (capabilities?.adapters ?? []).flatMap(a => {
+    const families = a.encoders[settings.nativeCodec] ?? a.encoders.h264 ?? a.encoders.hevc ?? []
+    return families.length ? [{ name: a.name, family: selectEncoder(families, settings) ?? families[0] }] : []
+  })
   const tab = (name: typeof view, label: string) => <button role="tab" aria-selected={view === name} onClick={() => setView(name)}
     className={`clickable px-3 py-1.5 rounded-md text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
       view === name ? 'bg-primary/15 text-primary' : 'text-gray-400 hover:text-gray-200'}`}>{label}</button>
@@ -572,7 +575,7 @@ function MainApp() {
         <span className="bg-surface px-3 py-2 rounded-lg">System audio {settings.systemAudio ? 'on' : 'off'} · Mic {settings.micEnabled ? (settings.systemAudio && settings.micTrack === 'separate' ? 'on, own track' : 'on') : 'off'}</span>
         {keys.record && <span className="bg-surface px-3 py-2 rounded-lg">{hotkeyLabel(keys.record)} records {settings.lastSource ? settings.lastSource.name : 'the last source'}</span>}
         {capabilities && settings.recordingEngine !== 'browser' && <span className={`px-3 py-2 rounded-lg ${readyAdapters.length ? 'bg-surface' : 'bg-yellow-500/10 text-yellow-300'}`}>
-          {readyAdapters.length ? `GPU capture ready on ${readyAdapters.map(a => `${a.name} (${encoderLabels[(a.encoders[settings.nativeCodec] ?? a.encoders.h264 ?? a.encoders.hevc)!]})`).join(', ')}`
+          {readyAdapters.length ? `GPU capture ready on ${readyAdapters.map(a => `${a.name} (${encoderLabels[a.family]})`).join(', ')}`
             : capabilities.reason ?? 'GPU capture is not available on this computer yet'}</span>}
       </div>
       {settings.qualityPreset === 'ultra' && <p className="mb-5 text-sm text-gray-300">For smooth high-refresh gameplay, choose a GPU screen. Ultra keeps its full resolution and color detail. Window capture can deliver much lower frame rates.</p>}
@@ -590,7 +593,7 @@ function MainApp() {
           const disabled = !!busy || !loaded || (settings.recordingEngine === 'native' && !native && !source.id.startsWith('window:'))
           return <div key={source.id} className="bg-surface rounded-lg overflow-hidden">
             <button onClick={() => { void handleStart(source) }} disabled={disabled}
-              title={support && !support.ok ? support.reason : undefined}
+              title={support ? (support.ok ? support.note : support.reason) : undefined}
             className="clickable group relative w-full aspect-video rounded-lg overflow-hidden border border-transparent hover:border-primary/50 text-left disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
             <img src={source.thumbnail} alt="" className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-transparent p-3 flex flex-col justify-end">
@@ -598,6 +601,7 @@ function MainApp() {
               <span className={`text-xs mt-1 tabular-nums ${native ? 'text-primary' : 'text-gray-400'}`}>
                 {label}{source.width ? ` · ${source.width}×${source.height}` : ''} · {requestedFps(settings.frameRate, source.refreshRate)} fps target
               </span>
+              {support?.ok && support.note && <span className="text-xs text-yellow-300 mt-0.5">{support.note}</span>}
               {source.nativeDisplay?.hdr && <span className="text-xs text-yellow-300 mt-0.5">HDR is on: GPU capture records an SDR conversion</span>}
             </div>
             </button>

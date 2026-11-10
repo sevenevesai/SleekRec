@@ -106,7 +106,7 @@ export function openedExpectedAdapter(log: string, display: NativeDisplay): bool
   return !!match && parseInt(match[1], 16) === display.vendorId && parseInt(match[2], 16) === display.deviceId
 }
 
-type AdapterProbe = { encoders: Partial<Record<NativeCodec, EncoderFamily>>; error?: string }
+type AdapterProbe = { encoders: Partial<Record<NativeCodec, EncoderFamily[]>>; error?: string }
 const probes = new Map<string, { result: Promise<AdapterProbe>; startedAt: number; failed?: boolean }>()
 const RETRY_FAILED_PROBE_MS = 60_000
 
@@ -116,7 +116,10 @@ const RETRY_FAILED_PROBE_MS = 60_000
  */
 async function probeAdapter(display: NativeDisplay): Promise<AdapterProbe> {
   const failures: string[] = []
-  const probeCodec = async (codec: NativeCodec): Promise<EncoderFamily | undefined> => {
+  const probeCodec = async (codec: NativeCodec): Promise<EncoderFamily[]> => {
+    const working: EncoderFamily[] = []
+    // One family at a time per codec. ddagrab refuses a fifth concurrent duplication ("Too many
+    // open duplication sessions"), and a probe refused for that would hide a working family.
     for (const family of familiesFor(display.vendorId)) {
       const settings = { nativeCodec: codec, qualityPreset: 'medium' } as const
       try {
@@ -124,20 +127,28 @@ async function probeAdapter(display: NativeDisplay): Promise<AdapterProbe> {
           '-filter_complex', captureGraph({ display, family, fps: 30 }), '-map', '[v]',
           ...captureEncoderArgs(family, settings, 30, display.width * display.height * 30),
           '-frames:v', '2', '-f', 'null', '-'], 15000)
-        if (openedExpectedAdapter(log, display)) return family
-        failures.push(`${encoderName(family, codec)}: FFmpeg did not open ${display.adapterName}`)
+        if (openedExpectedAdapter(log, display)) working.push(family)
+        else failures.push(`${encoderName(family, codec)}: FFmpeg did not open ${display.adapterName}`)
       } catch (error) {
         const lines = String(error).split(/\r?\n/).filter(line => /error|fail|not|unsupported|invalid/i.test(line))
         failures.push(`${encoderName(family, codec)}: ${lines.slice(-2).join(' ').slice(0, 300)}`)
       }
     }
-    return undefined
+    return working
   }
   const [h264, hevc] = await Promise.all([probeCodec('h264'), probeCodec('hevc')])
   const encoders: AdapterProbe['encoders'] = {}
-  if (h264) encoders.h264 = h264
-  if (hevc) encoders.hevc = hevc
-  return { encoders, ...(!h264 && !hevc ? { error: failures.join('\n') } : {}) }
+  if (h264.length) encoders.h264 = h264
+  if (hevc.length) encoders.hevc = hevc
+  return { encoders, ...(!h264.length && !hevc.length ? { error: failures.join('\n') } : {}) }
+}
+
+/**
+ * Drops an adapter's cached probe so the next capture start probes it again. Called when a
+ * capture on it fails: a driver reset or an encoder that stopped working changes what works.
+ */
+export function forgetEncoders(luid: string): void {
+  probes.delete(luid)
 }
 
 /**
