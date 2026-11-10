@@ -336,6 +336,17 @@ export function captureEngineForSource(source: CaptureSource, setting: Recording
   return 'browser'
 }
 
+/**
+ * The screen a hotkey records before any source was remembered: the one under the cursor, in
+ * physical desktop pixels, else the only screen. Undefined when the choice would be a guess.
+ */
+export function screenAtPoint(sources: CaptureSource[], point?: { x: number; y: number }): CaptureSource | undefined {
+  const screens = sources.filter(source => source.id.startsWith('screen:'))
+  const under = point && screens.find(({ nativeDisplay: d }) => !!d && point.x >= d.x && point.x < d.x + d.width &&
+    point.y >= d.y && point.y < d.y + d.height)
+  return under ?? (screens.length === 1 ? screens[0] : undefined)
+}
+
 export function requestedFps(setting: FrameRate, refreshRate = 60): number {
   return setting === 'display' ? Math.max(1, Math.min(240, Math.round(refreshRate || 60))) : setting
 }

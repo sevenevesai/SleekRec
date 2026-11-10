@@ -133,8 +133,12 @@ function applySettings(settings: AppSettings) {
   updateTray(settings)
 }
 
+/** With the cursor in physical desktop pixels, the space NativeDisplay bounds use; Windows only. */
+const sendHotkeyRecord = () => send('hotkey-record',
+  process.platform === 'win32' ? screen.dipToScreenPoint(screen.getCursorScreenPoint()) : undefined)
+
 const hotkeyHandlers: Partial<Record<HotkeyAction, () => void>> = {
-  record: () => send('hotkey-record'),
+  record: sendHotkeyRecord,
   stop: () => send('stop-recording'),
   pause: () => send('pause-recording'),
   // Replay needs the GPU engine; elsewhere these would only hold keys and report a dead end.
@@ -457,7 +461,7 @@ app.whenReady().then(() => {
   const settings = loadSettings()
   createWindow(!(settings.startMinimized || process.argv.includes('--hidden')))
   tray = new AppTray({
-    record: () => send('hotkey-record'),
+    record: sendHotkeyRecord,
     stop: () => send('stop-recording'),
     pause: () => send('pause-recording'),
     replayToggle: () => send('hotkey-replay-toggle'),

@@ -32,6 +32,12 @@ sources without thumbnails and looks it up by ID; a window whose handle changed 
 a unique exact title. When nothing matches, a toast says so and the window opens. A hotkey never
 picks a different source.
 
+Before any source was remembered there is nothing to respect, and raising the window would pull a
+new user out of their game. That first press records the screen under the cursor (`screenAtPoint`;
+main sends the cursor in physical pixels with `hotkey-record`), or the only screen, and the start
+toast names it. That start is remembered like any other. With several screens and no cursor
+position (macOS, Linux) the old behaviour stays: a toast and the window.
+
 Hotkey and tray starts happen inside games, so their session is marked `origin: 'hotkey'`: stop
 shows a toast instead of restoring SleekRec's window. UI starts restore it and open the
 Recordings tab. Toasts (`toast.html`) are click-through, always on top and excluded from capture;

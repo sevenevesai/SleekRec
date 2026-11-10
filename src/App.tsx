@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { CaptureAudio } from './capture-audio'
 import { CaptureSource, CaptureInfo, CaptureRegion, JobProgress, LibraryEntry, MediaDetails, NativeCapabilities, RecordingStats,
   SavedRecording, SourceRef, captureBitrate, captureEngineForSource, defaultCompression, defaultHotkeys, encoderLabels, gpuSupport, qualityPresets,
-  errorMessage, requestedFps, selectEncoder } from './recording'
+  errorMessage, requestedFps, screenAtPoint, selectEncoder } from './recording'
 import { SettingsModal, formatSeconds, hotkeyLabel } from './SettingsModal'
 import { RecordingsPanel, formatBytes } from './RecordingsPanel'
 import { TrimEditor } from './TrimEditor'
@@ -225,11 +225,15 @@ function MainApp() {
     syncTimer()
   }, [syncTimer])
 
-  const handleHotkeyRecord = useCallback(async () => {
+  const handleHotkeyRecord = useCallback(async (cursor?: { x: number; y: number }) => {
     if (sessionRef.current) { void stopRef.current(); return }
     if (operationRef.current) { window.electronAPI.toast(STILL_BUSY, 'error'); return }
     const ref = settingsRef.current.lastSource
     if (!ref) {
+      // A first press inside a game must not raise this window over it. Only this case picks a
+      // source; a remembered one that is missing still stops below.
+      const screen = screenAtPoint(await window.electronAPI.getSources(false).catch(() => []), cursor)
+      if (screen) { await startRef.current(screen, {}, 'hotkey'); return }
       window.electronAPI.toast('Start one recording from SleekRec first; the hotkey then records that source.', 'error')
       window.electronAPI.restore()
       return
@@ -300,7 +304,7 @@ function MainApp() {
       window.electronAPI.onPauseRecording(() => { void handlePause() }),
       window.electronAPI.onMicToggle(handleMicToggle), window.electronAPI.onRecordingStats(setStats),
       window.electronAPI.onRecordingError(fail),
-      window.electronAPI.onHotkeyRecord(() => { void handleHotkeyRecord() }),
+      window.electronAPI.onHotkeyRecord(cursor => { void handleHotkeyRecord(cursor) }),
       window.electronAPI.onHotkeyReplayToggle(() => { void handleReplayToggle() }),
       window.electronAPI.onReplayOff(() => { void disarmReplay() }),
       window.electronAPI.onFinalizeProgress(fraction => setBusy(`Making the MP4… ${Math.round(fraction * 100)}%`)),
@@ -573,7 +577,7 @@ function MainApp() {
       <div className="mb-5 flex flex-wrap gap-2 text-xs text-gray-400">
         <span className="bg-surface px-3 py-2 rounded-lg">{settings.qualityPreset.toUpperCase()} · {settings.frameRate === 'display' ? 'Display refresh' : `${settings.frameRate} fps`} · {settings.nativeCodec === 'hevc' ? 'HEVC' : 'H.264'}</span>
         <span className="bg-surface px-3 py-2 rounded-lg">System audio {settings.systemAudio ? 'on' : 'off'} · Mic {settings.micEnabled ? (settings.systemAudio && settings.micTrack === 'separate' ? 'on, own track' : 'on') : 'off'}</span>
-        {keys.record && <span className="bg-surface px-3 py-2 rounded-lg">{hotkeyLabel(keys.record)} records {settings.lastSource ? settings.lastSource.name : 'the last source'}</span>}
+        {keys.record && <span className="bg-surface px-3 py-2 rounded-lg">{hotkeyLabel(keys.record)} records {settings.lastSource ? settings.lastSource.name : 'the screen under the cursor'}</span>}
         {capabilities && settings.recordingEngine !== 'browser' && <span className={`px-3 py-2 rounded-lg ${readyAdapters.length ? 'bg-surface' : 'bg-yellow-500/10 text-yellow-300'}`}>
           {readyAdapters.length ? `GPU capture ready on ${readyAdapters.map(a => `${a.name} (${encoderLabels[a.family]})`).join(', ')}`
             : capabilities.reason ?? 'GPU capture is not available on this computer yet'}</span>}

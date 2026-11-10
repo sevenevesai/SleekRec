@@ -24,8 +24,8 @@ const { ReplayBuffer, REPLAY_DIRECTORY } = load('electron/replay-buffer.ts', 're
 const { listLibrary, libraryPath, recoverUnfinished, uniqueOutput } = load('electron/library.ts', 'library')
 const { probeMedia, parseProbe } = load('electron/media-probe.ts', 'probe')
 const { normalizeSettings } = load('electron/settings.ts', 'stored-settings')
-const { captureEngineForSource, requestedFps, gpuSupport, clampRegion, audioTrackTitles, defaultHotkeys, isValidHotkey } =
-  load('src/recording.ts', 'settings')
+const { captureEngineForSource, requestedFps, gpuSupport, clampRegion, audioTrackTitles, defaultHotkeys, isValidHotkey,
+  screenAtPoint } = load('src/recording.ts', 'settings')
 const helper = path.join(root, 'native', 'bin', 'windows-displays.exe')
 const settings = { outputFolder: output, qualityPreset: 'ultra' }
 const info = { engine: 'browser', codec: 'h264', width: 160, height: 96, targetFps: 120 }
@@ -217,6 +217,17 @@ const defaults = { outputFolder: output, qualityPreset: 'medium', recordingEngin
   startMinimized: false, closeToTray: false, launchAtLogin: false, lastSource: null, encoderPreference: 'auto',
   mp4MaxGB: 16, afterRecording: 'none', fitTargetMB: 50, recycleMasterAfterCompress: false,
   compression: { codec: 'h264', quality: 'balanced', maxHeight: 'source', maxFps: 'source' } }
+
+test('a first hotkey press records the screen under the cursor, and never guesses between screens', () => {
+  const screen = (id, x) => ({ id, name: id, thumbnail: '', nativeDisplay: { x, y: 0, width: 2560, height: 1440 } })
+  const two = [{ id: 'window:7:0', name: 'Game', thumbnail: '' }, screen('screen:0:0', 0), screen('screen:1:0', -2560)]
+  assert.equal(screenAtPoint(two, { x: -1, y: 700 }).id, 'screen:1:0', 'Negative desktop coordinates belong to the left display')
+  assert.equal(screenAtPoint(two, { x: 2559, y: 1439 }).id, 'screen:0:0')
+  assert.equal(screenAtPoint(two, { x: 2560, y: 0 }), undefined, 'A point outside every display picks nothing')
+  assert.equal(screenAtPoint(two), undefined, 'Without a cursor position two screens are a guess')
+  assert.equal(screenAtPoint([two[0], { id: 'screen:0:0', name: 'Screen', thumbnail: '' }]).id, 'screen:0:0', 'The only screen needs no position')
+  assert.equal(screenAtPoint([two[0]], { x: 5, y: 5 }), undefined, 'A window is never picked')
+})
 
 test('stored settings from older versions gain defaults, and invalid hotkeys and sources are refused', () => {
   const old = normalizeSettings({ outputFolder: output, qualityPreset: 'high', columnCount: 3 }, defaults)
