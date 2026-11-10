@@ -4,6 +4,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { CompressionOptions, NativeCodec, compressionQp, defaultCompression } from '../src/recording'
 import { progressReader, runFfmpeg } from './ffmpeg'
+import { FASTSTART_MAX_BYTES } from './finalize'
 import { MediaInfo, probeMedia } from './media-probe'
 
 // Exports and trims never replace a master: each writes a new file through a .partial name
@@ -168,9 +169,10 @@ export async function exportRecording(input: string, output: string, mode: 'copy
   if (codec !== 'h264' && codec !== 'hevc') {
     throw new Error('This master needs H.264 conversion for MP4. Choose Compatible MP4; the original will be kept.')
   }
-  await ensureFreeSpace(output, (await fs.stat(input)).size)
+  const { size } = await fs.stat(input)
+  await ensureFreeSpace(output, size)
   await writeNew(output, partial => runFfmpeg(['-n', '-i', input, '-map', '0:v:0', '-c:v', 'copy', ...(codec === 'hevc' ? ['-tag:v', 'hvc1'] : []),
-    ...allAudio(info), '-movflags', '+faststart', ...progressArgs(options), partial], 0,
+    ...allAudio(info), ...(size > FASTSTART_MAX_BYTES ? [] : ['-movflags', '+faststart']), ...progressArgs(options), partial], 0,
   options.onProgress && progressReader(info.seconds, options.onProgress), options.signal))
 }
 

@@ -348,7 +348,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: {
               onChange={e => set({ mp4MaxGB: Number(e.target.value) as AppSettings['mp4MaxGB'] })}>
               {mp4LimitsGB.map(gb => <option key={gb} value={gb}>{gb ? `Keep MKV above ${gb} GB` : 'Always make an MP4'}</option>)}
             </select>
-            <p className="text-xs text-gray-500">Above the limit, stopping skips the MP4 copy and keeps the MKV; convert it later with MP4, same video in Recordings.</p>
+            <p className="text-xs text-gray-500">Above the limit, stopping keeps the MKV and finishes at once; convert it later with MP4, same video in Recordings. A recording you paused is joined on stop and becomes an MP4 at any size.</p>
             <label className="block text-sm text-gray-400">Source thumbnail columns</label>
             <div className="flex gap-2">
               {[2, 3, 4].map(cols => <button key={cols} onClick={() => set({ columnCount: cols })}

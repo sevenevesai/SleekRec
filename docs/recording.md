@@ -96,9 +96,12 @@ its MKV: 4:4:4 in MP4 plays no better. Finalize progress reaches the UI as `fina
 
 Two size thresholds bound stop time. Up to 4 GiB (`FASTSTART_MAX_BYTES`) the MP4 gets
 `+faststart`; above it the index stays at the end, since moving it rewrites the whole file and only
-helps playback streamed over HTTP. Parts larger than `mp4MaxGB` (Settings, "Large recordings"; 0
-means always MP4) skip the MP4 copy and take the MKV path, so a single part is only renamed and
-stop returns at once. The other fallbacks still apply in their own cases. Being a chosen outcome,
+helps playback streamed over HTTP. A single part larger than `mp4MaxGB` (Settings, "Large
+recordings"; 0 means always MP4) skips the MP4 copy and is only renamed to `.mkv`, so stop returns
+at once. A paused recording has several parts, which need one copy whatever the container, and the
+MKV join measured no faster than a plain MP4 (below): those become the MP4 at any size, and
+"MP4, same video" skips faststart above 4 GiB for the same reason. The other fallbacks still apply
+in their own cases. Being a chosen outcome,
 this sets the result's `note`, not `warning`: the saved card, Recordings card and hotkey toast show
 it without warning styling, and the overlay says "will save as MKV" once the written size passes
 the limit (`mkvOnStop`, added by main to `timer-update`). The browser engine applies both rules to
@@ -107,8 +110,7 @@ converts later.
 
 Measured finalize of 6.7 GB in three 100 Mbps parts (2026-11-10, parts still in the file cache):
 NVMe SSD 7-10 s with faststart, 6-6.5 s without, 9-10 s for the MKV join; 7200 rpm HDD 135-146 s,
-54 s and 50-57 s. A single part over the limit is renamed in under 0.1 s on either. The join is no
-faster than an MP4 without faststart, so only a recording without pauses stops at once.
+54 s and 50-57 s. A single part over the limit is renamed in under 0.1 s on either.
 
 The MKV join writes through `<session>.partial.mkv` and is verified too: the concat demuxer skips
 a part it cannot open and still exits 0, so a join whose log reports an unreadable part, or that

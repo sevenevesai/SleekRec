@@ -350,7 +350,7 @@ export class NativeRecorder {
 
   /** Whether stop will keep the MKV master because the recording passed the MP4 size limit. */
   get mkvOnStop(): boolean {
-    return this.settings.qualityPreset !== 'ultra' &&
+    return this.settings.qualityPreset !== 'ultra' && this.parts.length === 1 &&
       mp4Layout(this.lastStats?.bytes ?? 0, this.settings.mp4MaxGB * GiB) === 'mkv'
   }
 

@@ -34,7 +34,9 @@ if (!process.versions.electron) {
     nativeCodec: 'h264', systemAudio: true, micEnabled: false, columnCount: 2,
   }))
   shell.showItemInFolder = () => {}
+  let showingMotion = false
   app.on('browser-window-created', (_event, window) => {
+    if (showingMotion) return
     window.hide()
     window.minimize = () => window.hide()
     window.restore = () => window.hide()
@@ -63,8 +65,13 @@ if (!process.versions.electron) {
   }
   async function start(marker) {
     await js(`Array.from(document.querySelectorAll('[role="tab"]')).find(b=>b.innerText==='Record')?.click()`)
-    await until(text => text.includes(marker))
-    assert.ok(await js(`(()=>{const b=Array.from(document.querySelectorAll('main button')).find(b=>b.innerText.includes(${JSON.stringify(marker)}));if(!b || b.disabled)return false;b.click();return true})()`))
+    // Wait for the card itself: the header's "GPU capture ready on…" shows before any card loads.
+    const card = `Array.from(document.querySelectorAll('main button')).find(b=>b.innerText.includes(${JSON.stringify(marker)}) && !b.disabled)`
+    for (const began = Date.now(); !await js(`!!${card}`);) {
+      if (Date.now() - began > 30000) throw new Error(`No enabled source card says "${marker}": ` + await js('document.body.innerText'))
+      await sleep(200)
+    }
+    await js(`${card}.click()`)
     await until(text => text.includes('Stop and save') && !text.includes('Starting capture'))
   }
   async function savedPath(started) {
@@ -96,6 +103,15 @@ if (!process.versions.electron) {
   }
   ;(async () => {
     await app.whenReady()
+    // The browser recorder receives a frame only when the screen changes; an idle desktop gave
+    // about 19 frames where the check below needs 30. This corner counter keeps the screen moving.
+    showingMotion = true
+    const motion = new BrowserWindow({ width: 160, height: 60, x: 0, y: 0, frame: false, alwaysOnTop: true, focusable: false,
+      skipTaskbar: true, show: false })
+    showingMotion = false
+    await motion.loadURL('data:text/html,<body style="margin:0;background:%23121212;color:%23BB86FC;font:28px monospace">' +
+      '<script>let n=0;(function tick(){document.body.textContent=n++;requestAnimationFrame(tick)})()</script>')
+    motion.showInactive()
     await sleep(1500)
     main = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('index.html') || window.webContents.getURL().endsWith('/'))
     assert.ok(main)
@@ -148,6 +164,20 @@ if (!process.versions.electron) {
     await sleep(1500)
     const interrupting = await stop()
     console.log(JSON.stringify({ automaticCopyYielded: yielded }))
+
+    // A first hotkey press with nothing remembered records the screen under the cursor and remembers it.
+    await api(`saveSettings({micEnabled:false,lastSource:null})`)
+    main.reload()
+    await sleep(2000)
+    const displays = require('electron').screen
+    main.webContents.send('hotkey-record', displays.dipToScreenPoint(displays.getCursorScreenPoint()))
+    await until(text => text.includes('Stop and save') && !text.includes('Starting capture'))
+    assert.match((await api('getSettings()')).lastSource.id, /^screen:/, 'The first hotkey start is remembered')
+    await sleep(1500)
+    const firstUseStopped = Date.now()
+    main.webContents.send('hotkey-record')
+    const firstUse = await savedPath(firstUseStopped)
+    console.log(JSON.stringify({ firstHotkeyPress: path.basename(firstUse) }))
 
     // Hotkey start of a remembered GPU region, then instant replay on it.
     const screen = (await api('getSources()')).find(source => source.nativeDisplay)

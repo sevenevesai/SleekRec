@@ -114,9 +114,10 @@ recording. That time has not been measured for large files.
 - Between 4 GB and the limit the MP4 is written without faststart: one pass instead of two.
   Faststart only helps a file streamed over HTTP, which nobody does with a file that size, and
   editors open either layout. No setting; the 4 GB figure is a constant in `finalize.ts`.
-- Implementation point: the `mp4:` option passed from `CaptureProcess` to `finalizeCapture`
-  (`electron/native-recorder.ts`) becomes false above the limit. A single-part recording is then
-  a rename and stop returns at once; a multi-part one is one copy, not two.
+- As built: `finalizeCapture` decides from the measured size of the parts (`mp4Layout`). The
+  limit applies to a single part, which is renamed and stops at once. A paused recording has
+  several parts and needs one copy either way; measured, the MKV join was no faster than an MP4
+  without faststart, so those become the MP4 at any size. Figures are in `recording.md`.
 - This is a chosen outcome, not a failure: the result carries a note ("Saved as MKV: 38 GB is
   over the 16 GB MP4 limit"), separate from `warning`, and the toast and card show it without
   warning styling.
@@ -127,9 +128,8 @@ recording. That time has not been measured for large files.
 **Rules.** The existing fallbacks stay and take precedence in their own cases. No path deletes
 parts before a verified output exists. Replay saves are bounded and unaffected.
 
-**Unknowns to measure first.** Finalize throughput in GB per minute on an SSD and an HDD, which
-sets the default. Behaviour at 4 GB on FAT32 and exFAT output folders, where the parts
-themselves may hit a file-size limit.
+**Still unknown.** Behaviour at 4 GB on FAT32 output folders, where the parts themselves may hit
+a file-size limit.
 
 **Tests.** Unit: `finalizeCapture` with parts above and below the limit (extension, note, parts
 removed, nothing overwritten). Unit: settings validation. Manual: one recording past the limit,

@@ -32,10 +32,12 @@ Later: HDR displays, countdown, webcam bubble, cursor effects, a CLI for automat
 audio. Not doing: cloud upload or share links, accounts, a timeline editor, auto-zoom. Those are
 Cap's and Screen Studio's product; SleekRec's is capture fidelity and trust.
 
-Proposed, not started (2026-11-10): [framework-evaluation.md](framework-evaluation.md) (keep
-Electron; move audio capture, thumbnails and window capture into the helper) and
-[spec-encoder-compression-mkv-hotkey.md](spec-encoder-compression-mkv-hotkey.md) (encoder
-preference, automatic compression, MKV above a size limit, hotkey gaps).
+Built on main after 1.3.0, unreleased (2026-11-10): encoder preference, configurable and
+automatic compression, MKV above a size limit, first-press hotkey start. Spec:
+[spec-encoder-compression-mkv-hotkey.md](spec-encoder-compression-mkv-hotkey.md); what is left
+before release: [plan-capture-options.md](plan-capture-options.md). Proposed, not started:
+[framework-evaluation.md](framework-evaluation.md) (keep Electron; move audio capture, thumbnails
+and window capture into the helper).
 
 ## 1. Signed installer and package managers
 

@@ -93,7 +93,9 @@ export async function finalizeCapture(parts: string[], base: string, options: Fi
   const roomForCopy = disk.bavail * disk.bsize >= bytes + 512 * MiB
   const needed = `${Math.ceil((bytes + 512 * MiB) / 1024 / MiB)} GB`
   const warnings: string[] = []
-  const layout = mp4Layout(bytes, options.mp4MaxBytes, options.faststartMaxBytes)
+  // The size limit applies to a single part, which the MKV path only renames. Several parts are
+  // copied once whatever the container, and the MKV join measured no faster than a plain MP4.
+  const layout = mp4Layout(bytes, parts.length === 1 ? options.mp4MaxBytes : 0, options.faststartMaxBytes)
   const note = options.mp4 && layout === 'mkv' ? overMp4LimitNote(bytes, options.mp4MaxBytes!) : undefined
   const result = (file: string): Finalized => ({ path: file, ...(warnings.length ? { warning: warnings.join(' ') } : {}),
     ...(note ? { note } : {}) })
