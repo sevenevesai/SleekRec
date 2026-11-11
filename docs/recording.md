@@ -196,7 +196,7 @@ clip's measured gaps and the unresolved original engine selection.
   first GPU screen at Ultra with system audio for 60 seconds, pause/resume, a Medium recording with
   separate tracks (Chromium's fake microphone) that must become an MP4 with four streams, a
   hotkey-started 640x360 region, an instant-replay save, and browser capture, then checks the
-  library, a fast trim and a 10 MB fit. Uses an isolated profile under `.test-output`. Set
+  library, a fast trim and a 10 MB fit. Uses an isolated profile under `.test-output/smoke-<timestamp>`; a passing run deletes that folder, and a failing run keeps it (only the latest 3 failed folders are kept). Set
   `SLEEK_SMOKE_SECONDS` for a shorter development run. It does not measure game rendering load
   or visually certify synchronization.
 - `npm run build:win`: emits NSIS/MSI and `win-unpacked` with the native helper and FFmpeg.

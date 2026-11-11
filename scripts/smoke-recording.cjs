@@ -8,16 +8,28 @@ if (!process.versions.electron) {
   const { spawn } = require('node:child_process')
   const env = { ...process.env }
   delete env.ELECTRON_RUN_AS_NODE
+  // Recordings run to gigabytes. A passing run deletes its folder (after Electron exits, so nothing
+  // holds the files); failing runs keep theirs for diagnosis, but only the latest KEEP_FAILED.
+  const KEEP_FAILED = 3
+  const outputs = path.join(root, '.test-output')
+  const runs = () => fs.existsSync(outputs) ? fs.readdirSync(outputs).filter(name => /^smoke-\d+$/.test(name)).sort() : []
+  const old = runs()
+  for (const name of old.slice(0, Math.max(0, old.length - (KEEP_FAILED - 1)))) fs.rmSync(path.join(outputs, name), { recursive: true, force: true })
+  const directory = path.join(outputs, `smoke-${Date.now()}`)
+  env.SLEEK_SMOKE_DIR = directory
   const child = spawn(require('electron'), [__filename], { env, windowsHide: true, stdio: 'inherit' })
   child.on('error', error => { console.error(error); process.exitCode = 1 })
-  child.on('close', code => { process.exitCode = code || 0 })
+  child.on('close', code => {
+    process.exitCode = code || 0
+    if (code === 0 && fs.existsSync(path.join(directory, 'results.json'))) fs.rmSync(directory, { recursive: true, force: true })
+  })
 } else if (process.env.SLEEK_SMOKE_PROFILE) {
   // The second launch below: the single-instance lock must end this process without side effects.
   require('electron').app.setPath('userData', process.env.SLEEK_SMOKE_PROFILE)
   require(path.join(root, 'dist-electron/main.js'))
 } else {
   const { app, BrowserWindow, shell } = require('electron')
-  const directory = path.join(root, '.test-output', `smoke-${Date.now()}`)
+  const directory = process.env.SLEEK_SMOKE_DIR
   const profile = path.join(directory, 'profile')
   fs.mkdirSync(profile, { recursive: true })
   // Verify with the same binary the app resolves, as the unit tests do.
