@@ -107,7 +107,8 @@ Queue rules, in `JobQueue`:
 **Recycle opt-in.** `recycleMasterAfterCompress` is off by default and shown only with a mode
 chosen. `recycleMasterAfterCopy` (in `library.ts`, Electron-free) is the only code that removes a
 master: automatic jobs only, the setting read when the copy is done, and the copy verified again
-against the master right before the move. The master and its sidecar go to the Recycle Bin
+against the master right before the move, including being smaller (a short or already efficient
+master can compress into a larger file). The master and its sidecar go to the Recycle Bin
 (`shell.trashItem`), so they stay restorable. A refused check or a failed move keeps the master
 and becomes a warning on the copy's card and in the toast. Manual exports never touch the master.
 

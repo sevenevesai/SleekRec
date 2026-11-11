@@ -15,7 +15,7 @@ import { BrowserRecorder } from './browser-recorder'
 import { JobOptions, compressRecording, exportRecording, fitToSize, grabFrame, keyframeTimes, trimRecording } from './export-recording'
 import { JobQueue, automaticRequest } from './job-queue'
 import { probeMedia } from './media-probe'
-import { DerivedSidecar, libraryPath, listLibrary, recoverUnfinished, recycleMasterAfterCopy, uniqueOutput } from './library'
+import { DerivedSidecar, firstLine, libraryPath, listLibrary, recoverUnfinished, recycleMasterAfterCopy, uniqueOutput } from './library'
 import { normalizeSettings, parseExportRequest } from './settings'
 import { HotkeyStatus, applyHotkeys, releaseHotkeys } from './hotkeys'
 import { AppTray, TrayMode, appIcon } from './tray'
@@ -954,7 +954,6 @@ async function exportCopy(input: string, request: ExportRequest, options: JobOpt
   return { output, detail: request.mode === 'copy' ? 'MP4 · same video' : 'Compatible H.264 MP4' }
 }
 
-const firstLine = (error: unknown) => String(error).replace(/^Error: /, '').split('\n')[0]
 const formatSize = (bytes: number) => bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`
 
 /**

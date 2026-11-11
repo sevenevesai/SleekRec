@@ -96,3 +96,11 @@ them there.
   third `NativeCodec`, and an RTX 40, RX 7000 or Arc card to validate on.
 - Cross-adapter encoding for hybrid laptops (panel on the iGPU, encode on the dGPU) through a
   system-memory copy; only if a run on such a laptop shows the iGPU encoder missing frame rate.
+- Browser-engine masters kept as recorded (VP9 `.webm`, H.264 `.mkv` above `mp4MaxGB`) are
+  MediaRecorder Matroska, which likely states no duration and no cues (from the 1.4.0 review, not
+  measured): no seeking, no length on the card, and the recycle opt-in refuses them. A
+  stream-copy remux on stop would fix it at the cost of one copy.
+- Export encoder probes (`bestExportEncoder`, `hevcExportEncoder` in `export-recording.ts`)
+  repeat one probe loop and ignore the job's abort signal, so a recording start can wait for the
+  first automatic job's probes (cached afterwards). Merge them into one codec-keyed probe that
+  takes the signal.

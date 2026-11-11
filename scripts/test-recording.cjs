@@ -820,13 +820,13 @@ test('Cancel ends an automatic job for good, a failure is reported once, and qui
   assert.ok(state.updates.filter(update => update.done).length >= 4, 'every job clears its progress bar')
 })
 
-test('the master goes to the Recycle Bin only with the opt-in and a copy that verifies against it', async () => {
-  const clip = async (name, seconds) => {
+test('the master goes to the Recycle Bin only with the opt-in and a smaller copy that verifies against it', async () => {
+  const clip = async (name, seconds, quality = ['-crf', '23']) => {
     const file = path.join(output, name)
-    await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'testsrc2=size=160x96:rate=30', '-t', String(seconds), '-c:v', 'libx264', '-preset', 'ultrafast', file])
+    await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'testsrc2=size=160x96:rate=30', '-t', String(seconds), '-c:v', 'libx264', '-preset', 'ultrafast', ...quality, file])
     return file
   }
-  const master = await clip('recycle-master.mp4', 3)
+  const master = await clip('recycle-master.mp4', 3, ['-qp', '0'])
   await fs.writeFile(`${master}.json`, '{}')
   const good = await clip('recycle-good.mp4', 3)
   const short = await clip('recycle-short.mp4', 1)
@@ -836,7 +836,9 @@ test('the master goes to the Recycle Bin only with the opt-in and a copy that ve
   const refused = await jobs.recycleMasterAfterCopy(master, short, { enabled: true, trash })
   assert.equal(refused.recycled, false)
   assert.match(refused.warning, /original was kept: The copy lasts 1\.0 s but the original 3\.0 s/)
-  assert.deepEqual(trashed, [], 'nothing moves without the opt-in or with a copy that does not verify')
+  const larger = await jobs.recycleMasterAfterCopy(good, master, { enabled: true, trash })
+  assert.deepEqual(larger, { recycled: false, warning: 'The original was kept: the copy is not smaller than the original.' })
+  assert.deepEqual(trashed, [], 'nothing moves without the opt-in, with a copy that does not verify, or with a larger copy')
   const failed = await jobs.recycleMasterAfterCopy(master, good, { enabled: true, trash: async () => { throw new Error('Access is denied') } })
   assert.deepEqual(failed, { recycled: false, warning: 'The original could not move to the Recycle Bin (Access is denied); both files are kept.' })
   assert.deepEqual(await jobs.recycleMasterAfterCopy(master, good, { enabled: true, trash }), { recycled: true })

@@ -144,11 +144,12 @@ export async function uniqueOutput(source: string, suffix: string, extension: st
   throw new Error('Too many copies with this name already exist')
 }
 
-const firstLine = (error: unknown) => String(error).replace(/^Error: /, '').split('\n')[0]
+export const firstLine = (error: unknown): string => String(error).replace(/^Error: /, '').split('\n')[0]
 
 /**
  * The only code that removes a master, and only for an automatic compression the user opted into.
- * The copy is verified against the master here, right before the move, whatever the job checked.
+ * The copy is verified against the master here, right before the move, whatever the job checked,
+ * and must be smaller: a short or efficient master can compress into a larger file.
  * Master and sidecar go to the Recycle Bin through `trash`, so they stay restorable; a refused
  * check or a failed move keeps the master and comes back as a warning for the copy.
  */
@@ -159,6 +160,8 @@ export async function recycleMasterAfterCopy(master: string, copy: string,
     const { seconds } = await probeMedia(master)
     if (!(seconds > 0)) throw new Error('the original states no duration to compare the copy with')
     await verifyCopy(copy, seconds)
+    const [masterBytes, copyBytes] = await Promise.all([master, copy].map(async file => (await fs.stat(file)).size))
+    if (copyBytes >= masterBytes) throw new Error('the copy is not smaller than the original')
   } catch (error) {
     return { recycled: false, warning: `The original was kept: ${firstLine(error)}.` }
   }
