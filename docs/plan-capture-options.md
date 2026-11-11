@@ -45,7 +45,8 @@ All three add a block to `src/SettingsModal.tsx`; each keeps to its own block.
   preference exposes those families only when their probe passes, and the UI does not call them
   tested.
 
-Released as 1.4.0 on 2026-11-11 with the three items above still open.
+Released as 1.4.1 on 2026-11-11 with the three items above still open. The v1.4.0 tag has no
+release: its Linux tests hung on an FFmpeg that outlived SIGTERM, fixed in 1.4.1.
 
 ## Pickup notes
 
