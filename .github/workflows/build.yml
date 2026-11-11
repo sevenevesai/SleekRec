@@ -52,7 +52,9 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+      # A hung test must fail the job with its log, not hold the release for the 6-hour job limit.
       - name: Recording tests
+        timeout-minutes: 10
         run: npm test
 
       - name: Generate icons
