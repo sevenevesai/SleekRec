@@ -44,10 +44,11 @@ All three add a block to `src/SettingsModal.tsx`; each keeps to its own block.
 - AMF and Quick Sync runs on AMD and Intel hardware (`roadmap.md` item 2). The encoder
   preference exposes those families only when their probe passes, and the UI does not call them
   tested.
-- Version bump and release.
+
+Released as 1.4.0 on 2026-11-11 with the three items above still open.
 
 ## Pickup notes
 
 Gates for every slice: `npx tsc --noEmit` clean, `npm test` all passing with the total rising,
 `npm run test:recording` printing `SMOKE PASS` for anything touching capture or stop. The remote
-is public: nothing is pushed.
+is public: push and release only when the owner asks.
