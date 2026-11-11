@@ -43,7 +43,7 @@ and show a toast. Explorer is no longer opened on every save; Show in folder is 
   save could not delete: it lists as leftover parts with Delete only.
 
 Exports, trims and recoveries run one at a time as jobs with progress and Cancel (an
-`AbortSignal` kills FFmpeg), through `JobQueue` in `electron/job-queue.ts` (no Electron imports,
+`AbortSignal` sends FFmpeg SIGTERM, then SIGKILL after 2 s if it is still running), through `JobQueue` in `electron/job-queue.ts` (no Electron imports,
 unit-tested). They are refused during a recording and while another job runs, but allowed while
 instant replay is armed, which can run for hours. Every job, recovery included, writes
 `<name>.partial.<ext>` (`writeNew`), renames it only on success, never overwrites (`uniqueOutput`

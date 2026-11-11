@@ -33,13 +33,18 @@ export function runFfmpeg(args: string[], timeout = 0, onStdout?: (data: Buffer)
     const append = (data: Buffer) => { log = (log + data.toString()).slice(-24_000) }
     child.stdout.on('data', onStdout || append)
     child.stderr.on('data', append)
-    const timer = timeout ? setTimeout(() => child.kill(), timeout) : undefined
-    const abort = () => child.kill()
-    signal?.addEventListener('abort', abort, { once: true })
-    child.on('error', error => { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(error) })
+    // SIGTERM lets FFmpeg close its output; one still running 2 s later is killed, since a job
+    // yielding to a recording waits for the exit, and FFmpeg 6.1 on Linux can ignore SIGTERM.
+    const stop = () => {
+      child.kill()
+      setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL') }, 2000).unref()
+    }
+    const timer = timeout ? setTimeout(stop, timeout) : undefined
+    signal?.addEventListener('abort', stop, { once: true })
+    child.on('error', error => { clearTimeout(timer); signal?.removeEventListener('abort', stop); reject(error) })
     child.on('close', code => {
       clearTimeout(timer)
-      signal?.removeEventListener('abort', abort)
+      signal?.removeEventListener('abort', stop)
       if (signal?.aborted) { reject(new CancelledError()); return }
       // Some Windows FFmpeg builds return zero on output-open failure (-n).
       // Never treat that as a successful remux and delete the input afterwards.
