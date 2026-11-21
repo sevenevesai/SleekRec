@@ -58,6 +58,15 @@ export function parseExportRequest(input: unknown, fallback: CompressionOptions)
   return { mode: 'fit', targetMB: request.targetMB }
 }
 
+/** The only targets the renderer may open in the browser: the seveneves.ai pages. */
+export function isCommunityUrl(url: unknown): url is string {
+  if (typeof url !== 'string') return false
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:' && parsed.hostname === 'seveneves.ai' && !parsed.username && !parsed.password && !parsed.port
+  } catch { return false }
+}
+
 export function normalizeSettings(input: Partial<AppSettings>, defaults: AppSettings): AppSettings {
   const s = { ...defaults, ...input }
   if (!['low', 'medium', 'high', 'ultra'].includes(s.qualityPreset)) s.qualityPreset = defaults.qualityPreset
@@ -74,9 +83,10 @@ export function normalizeSettings(input: Partial<AppSettings>, defaults: AppSett
   s.micVolume = Number.isFinite(s.micVolume) ? Math.min(1.5, Math.max(0, s.micVolume)) : defaults.micVolume
   s.micDeviceId = typeof s.micDeviceId === 'string' ? s.micDeviceId : null
   for (const key of ['systemAudio', 'micEnabled', 'micRawInput', 'replayAutoArm', 'startMinimized',
-    'closeToTray', 'launchAtLogin', 'recycleMasterAfterCompress'] as const) {
+    'closeToTray', 'launchAtLogin', 'recycleMasterAfterCompress', 'discordNudgeSeen'] as const) {
     if (typeof s[key] !== 'boolean') s[key] = defaults[key]
   }
+  if (!Number.isSafeInteger(s.launchCount) || s.launchCount < 0) s.launchCount = defaults.launchCount
   if (![2, 3, 4].includes(s.columnCount)) s.columnCount = defaults.columnCount
   if (!(replayLengths as readonly number[]).includes(s.replaySeconds)) s.replaySeconds = defaults.replaySeconds
   s.hotkeys = normalizeHotkeys(input.hotkeys)

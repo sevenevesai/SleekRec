@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { EncoderFamily, FrameRate, HotkeyAction, NativeCapabilities, ReplaySeconds, encoderLabels, isValidHotkey, mp4LimitsGB, replayLengths } from './recording'
+import { EncoderFamily, errorMessage, FrameRate, HotkeyAction, NativeCapabilities, ReplaySeconds, encoderLabels, isValidHotkey, mp4LimitsGB, replayLengths, COMMUNITY_URL } from './recording'
 import { CompressionFields, FitSizeInput } from './CompressionFields'
 
 export const hotkeyNames: Record<HotkeyAction, string> = {
@@ -356,12 +356,17 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: {
                   ? 'bg-primary text-black' : 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50'}`}>{cols} columns</button>)}
             </div>
           </Section>
+
+          <Section title="Help">
+            <button className="text-sm text-gray-400 underline hover:text-white"
+              onClick={() => { window.electronAPI.openExternal(`${COMMUNITY_URL}sleekrec-app`).catch(e => window.electronAPI.toast(errorMessage(e), 'error')) }}>Discord community</button>
+          </Section>
         </div>
         <div className="flex gap-3 px-6 py-4 border-t border-gray-800">
           <button onClick={onClose} className="flex-1 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm transition-colors">Cancel</button>
           <button onClick={() => {
             // The remembered source changes with every start; the dialog's copy may be stale.
-            const { lastSource: _remembered, ...changes } = local
+            const { lastSource: _remembered, launchCount: _launches, discordNudgeSeen: _seen, ...changes } = local
             onSave(changes)
             onClose()
           }}

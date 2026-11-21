@@ -86,6 +86,18 @@ export interface AppSettings {
   closeToTray: boolean
   launchAtLogin: boolean
   lastSource: SourceRef | null
+  /** Launches so far, counted by main at startup. */
+  launchCount: number
+  /** Set the moment the Discord nudge is displayed; it never returns after that. */
+  discordNudgeSeen: boolean
+}
+
+export const COMMUNITY_URL = 'https://seveneves.ai/discord/?from='
+
+/** Eligible from the 3rd launch, or after a save on a later-than-first launch; never while busy. */
+export function shouldShowDiscordNudge(state: { launchCount: number; seen: boolean; savedThisSession: boolean; busy: boolean }): boolean {
+  if (state.seen || state.busy || !Number.isInteger(state.launchCount) || state.launchCount < 2) return false
+  return state.launchCount >= 3 || state.savedThisSession
 }
 
 export const defaultHotkeys: Hotkeys = {

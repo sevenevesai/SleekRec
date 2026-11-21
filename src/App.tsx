@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { CaptureAudio } from './capture-audio'
 import { CaptureSource, CaptureInfo, CaptureRegion, JobProgress, LibraryEntry, MediaDetails, NativeCapabilities, RecordingStats,
   SavedRecording, SourceRef, captureBitrate, captureEngineForSource, defaultCompression, defaultHotkeys, encoderLabels, gpuSupport, qualityPresets,
-  errorMessage, requestedFps, screenAtPoint, selectEncoder } from './recording'
+  errorMessage, requestedFps, screenAtPoint, selectEncoder, shouldShowDiscordNudge, COMMUNITY_URL } from './recording'
 import { SettingsModal, formatSeconds, hotkeyLabel } from './SettingsModal'
 import { RecordingsPanel, formatBytes } from './RecordingsPanel'
 import { TrimEditor } from './TrimEditor'
@@ -23,7 +23,7 @@ type Replay = { id: string; info: CaptureInfo; source: SourceRef; buffered: numb
 const initialSettings: AppSettings = { outputFolder: '', qualityPreset: 'medium', recordingEngine: 'auto', frameRate: 'display',
   nativeCodec: 'h264', systemAudio: true, columnCount: 2, micEnabled: false, micDeviceId: null, micVolume: 0.8, micRawInput: false,
   micTrack: 'mixed', hotkeys: { ...defaultHotkeys }, replaySeconds: 120, replayAutoArm: false, startMinimized: false,
-  closeToTray: false, launchAtLogin: false, lastSource: null, encoderPreference: 'auto', mp4MaxGB: 16, afterRecording: 'none',
+  closeToTray: false, launchAtLogin: false, lastSource: null, launchCount: 0, discordNudgeSeen: true, encoderPreference: 'auto', mp4MaxGB: 16, afterRecording: 'none',
   compression: { ...defaultCompression }, fitTargetMB: 50, recycleMasterAfterCompress: false }
 
 function sourceLabel(source: CaptureSource, options: NativeOptions): string {
@@ -41,6 +41,7 @@ function findSource(sources: CaptureSource[], ref: SourceRef): CaptureSource | u
   return matches.length === 1 ? matches[0] : undefined
 }
 
+const NUDGE_SECONDS = 12
 const STILL_BUSY = 'SleekRec is still busy. Try again in a moment.'
 
 function MainApp() {
@@ -58,6 +59,10 @@ function MainApp() {
   const [info, setInfo] = useState<CaptureInfo | null>(null)
   const [stats, setStats] = useState<RecordingStats | null>(null)
   const [saved, setSaved] = useState<SavedRecording | null>(null)
+  const [savedThisSession, setSavedThisSession] = useState(false)
+  const [nudge, setNudge] = useState(false)
+  const [windowFocused, setWindowFocused] = useState(() => document.hasFocus())
+  const nudgeClaimedRef = useRef(false)
   const [highlight, setHighlight] = useState<string | null>(null)
   const [replay, setReplay] = useState<Replay | null>(null)
   const [job, setJob] = useState<JobProgress | null>(null)
@@ -163,6 +168,7 @@ function MainApp() {
         result = await window.electronAPI.stopSave(session.id)
       }
       setSaved(result)
+      setSavedThisSession(true)
       setHighlight(result.path)
       if (session.origin === 'hotkey') {
         // The toast holds two lines: the note's first sentence already names the size.
@@ -302,6 +308,29 @@ function MainApp() {
     return () => { alive = false; window.removeEventListener('focus', refreshOnFocus) }
   }, [])
   useEffect(() => {
+    const focus = () => setWindowFocused(true)
+    const blur = () => setWindowFocused(false)
+    window.addEventListener('focus', focus)
+    window.addEventListener('blur', blur)
+    return () => { window.removeEventListener('focus', focus); window.removeEventListener('blur', blur) }
+  }, [])
+  // The flag is saved before the card appears, so a failed write shows nothing. The card waits for a
+  // focused window: a hidden tray window would spend the one showing unseen.
+  const nudgeBlocked = isRecording || !!busy || !!job || showSettings || !!trimming
+  useEffect(() => {
+    if (nudgeClaimedRef.current || !loaded || !windowFocused) return
+    if (!shouldShowDiscordNudge({ launchCount: settings.launchCount, seen: settings.discordNudgeSeen, savedThisSession, busy: nudgeBlocked })) return
+    nudgeClaimedRef.current = true
+    window.electronAPI.saveSettings({ discordNudgeSeen: true })
+      .then(s => { setSettings(s); if (s.discordNudgeSeen) setNudge(true) })
+      .catch(e => setError(errorMessage(e)))
+  }, [loaded, windowFocused, settings.launchCount, settings.discordNudgeSeen, savedThisSession, nudgeBlocked])
+  useEffect(() => {
+    if (!nudge) return
+    const timeout = setTimeout(() => setNudge(false), NUDGE_SECONDS * 1000)
+    return () => clearTimeout(timeout)
+  }, [nudge])
+  useEffect(() => {
     const listeners = [window.electronAPI.onStopRecording(() => { void handleStop() }),
       window.electronAPI.onPauseRecording(() => { void handlePause() }),
       window.electronAPI.onMicToggle(handleMicToggle), window.electronAPI.onRecordingStats(setStats),
@@ -313,7 +342,7 @@ function MainApp() {
       window.electronAPI.onReplayStatus(buffered => {
         if (replayRef.current) { replayRef.current = { ...replayRef.current, buffered }; setReplay(replayRef.current) }
       }),
-      window.electronAPI.onReplaySaved(result => { setHighlight(result.path); setSaved(result) }),
+      window.electronAPI.onReplaySaved(result => { setHighlight(result.path); setSaved(result); setSavedThisSession(true) }),
       window.electronAPI.onReplayError(text => {
         setError(`Instant replay stopped: ${text}`)
         void disarmReplay()
@@ -634,6 +663,14 @@ function MainApp() {
       onTrim={(entry, details) => setTrimming({ entry, details })} />
     {trimming && <TrimEditor entry={trimming.entry} details={trimming.details} onClose={() => setTrimming(null)}
       onError={text => setError(text)} onSaved={output => { setTrimming(null); setHighlight(output) }} />}
+    {nudge && !isRecording && <aside aria-label="Discord community" className="fixed bottom-4 right-4 z-40 w-72 rounded-lg border border-gray-700 bg-surface p-4 text-sm shadow-lg">
+      <p className="pr-6 text-gray-200">Found a bug or want a feature? Tell me on Discord.</p>
+      <button aria-label="Close" className="clickable absolute right-2 top-2 rounded px-2 text-gray-400 hover:text-white" onClick={() => setNudge(false)}>×</button>
+      <button className="clickable mt-3 rounded-lg bg-gray-700 px-4 py-1.5 text-white hover:bg-gray-600" onClick={() => {
+        window.electronAPI.openExternal(`${COMMUNITY_URL}sleekrec-nudge`).catch(e => setError(errorMessage(e)))
+        setNudge(false)
+      }}>Join</button>
+    </aside>}
     <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} settings={settings} onSave={changes => { void saveSettings(changes) }} />
   </div>
 }

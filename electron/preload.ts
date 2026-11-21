@@ -11,6 +11,7 @@ function listen<T extends unknown[]>(channel: string, callback: (...args: T) => 
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   getSources: (thumbnails?: boolean) => ipcRenderer.invoke('get-sources', thumbnails),
   nativeCapabilities: () => ipcRenderer.invoke('native-capabilities'),
   prepareNative: (sourceId: string, options?: NativeOptions) => ipcRenderer.invoke('prepare-native', sourceId, options),

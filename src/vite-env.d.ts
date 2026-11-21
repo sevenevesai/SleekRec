@@ -46,6 +46,7 @@ declare global {
       showOverlay: () => void
       hideOverlay: () => void
       toast: (message: string, tone?: 'info' | 'error') => void
+      openExternal: (url: string) => Promise<void>
       getSettings: () => Promise<Settings>
       saveSettings: (settings: Partial<Settings>) => Promise<Settings>
       getQualityPresets: () => Promise<Record<Quality, Preset>>

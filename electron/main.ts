@@ -16,7 +16,7 @@ import { JobOptions, compressRecording, exportRecording, fitToSize, grabFrame, k
 import { JobQueue, automaticRequest } from './job-queue'
 import { probeMedia } from './media-probe'
 import { DerivedSidecar, firstLine, libraryPath, listLibrary, recoverUnfinished, recycleMasterAfterCopy, uniqueOutput } from './library'
-import { normalizeSettings, parseExportRequest } from './settings'
+import { isCommunityUrl, normalizeSettings, parseExportRequest } from './settings'
 import { HotkeyStatus, applyHotkeys, releaseHotkeys } from './hotkeys'
 import { AppTray, TrayMode, appIcon } from './tray'
 import { updateOnQuit } from './auto-update'
@@ -100,6 +100,8 @@ const defaultSettings: AppSettings = {
   closeToTray: false,
   launchAtLogin: false,
   lastSource: null,
+  launchCount: 0,
+  discordNudgeSeen: false,
 }
 
 // Main is the only writer, and media requests and panel cards read settings many times a second:
@@ -470,6 +472,13 @@ app.whenReady().then(() => {
   if (!primaryInstance) return
   registerMediaProtocol()
   updateOnQuit().catch(error => console.error('Update failed:', error))
+  // A write failure leaves the count unchanged, which keeps the Discord nudge closed.
+  try {
+    const counted = normalizeSettings({ ...loadSettings(), launchCount: loadSettings().launchCount + 1 }, defaultSettings)
+    fs.writeFileSync(settingsPath, JSON.stringify(counted, null, 2))
+    currentSettings = counted
+  }
+  catch (error) { console.error('Could not count this launch:', error) }
   const settings = loadSettings()
   createWindow(!(settings.startMinimized || process.argv.includes('--hidden')))
   tray = new AppTray({
@@ -1031,6 +1040,10 @@ ipcMain.on('toast', (_event, message: unknown, tone: unknown) => {
 })
 
 // Settings handlers
+ipcMain.handle('open-external', async (_event, url: unknown) => {
+  if (!isCommunityUrl(url)) throw new Error('Only seveneves.ai links can be opened')
+  await shell.openExternal(url)
+})
 ipcMain.handle('get-settings', () => loadSettings())
 ipcMain.handle('save-settings', (_event, settings: Partial<AppSettings>) => saveSettings(settings))
 ipcMain.handle('get-quality-presets', () => qualityPresets)

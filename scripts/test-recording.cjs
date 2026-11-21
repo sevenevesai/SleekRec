@@ -31,9 +31,9 @@ const { finalizeCapture, audioTrackArgs, mp4Layout, overMp4LimitNote } = load('e
 const { ReplayBuffer, REPLAY_DIRECTORY } = load('electron/replay-buffer.ts', 'replay')
 const { listLibrary, libraryPath, recoverUnfinished, uniqueOutput } = load('electron/library.ts', 'library')
 const { probeMedia, parseProbe } = load('electron/media-probe.ts', 'probe')
-const { normalizeSettings, parseExportRequest } = load('electron/settings.ts', 'stored-settings')
+const { normalizeSettings, parseExportRequest, isCommunityUrl } = load('electron/settings.ts', 'stored-settings')
 const { captureEngineForSource, requestedFps, gpuSupport, clampRegion, audioTrackTitles, defaultHotkeys, isValidHotkey,
-  screenAtPoint, defaultCompression } = load('src/recording.ts', 'settings')
+  screenAtPoint, defaultCompression, shouldShowDiscordNudge } = load('src/recording.ts', 'settings')
 const helper = path.join(root, 'native', 'bin', 'windows-displays.exe')
 const settings = { outputFolder: output, qualityPreset: 'ultra' }
 const info = { engine: 'browser', codec: 'h264', width: 160, height: 96, targetFps: 120 }
@@ -243,7 +243,7 @@ test('Ultra encodes all 4:4:4 samples losslessly for H.264 and HEVC when NVENC i
 const defaults = { outputFolder: output, qualityPreset: 'medium', recordingEngine: 'auto', frameRate: 'display',
   nativeCodec: 'h264', systemAudio: true, columnCount: 2, micEnabled: false, micDeviceId: null, micVolume: 0.8,
   micRawInput: false, micTrack: 'mixed', hotkeys: { ...defaultHotkeys }, replaySeconds: 120, replayAutoArm: false,
-  startMinimized: false, closeToTray: false, launchAtLogin: false, lastSource: null, encoderPreference: 'auto',
+  startMinimized: false, closeToTray: false, launchAtLogin: false, lastSource: null, launchCount: 0, discordNudgeSeen: false, encoderPreference: 'auto',
   mp4MaxGB: 16, afterRecording: 'none', fitTargetMB: 50, recycleMasterAfterCompress: false,
   compression: { codec: 'h264', quality: 'balanced', maxHeight: 'source', maxFps: 'source' } }
 
@@ -256,6 +256,40 @@ test('a first hotkey press records the screen under the cursor, and never guesse
   assert.equal(screenAtPoint(two), undefined, 'Without a cursor position two screens are a guess')
   assert.equal(screenAtPoint([two[0], { id: 'screen:0:0', name: 'Screen', thumbnail: '' }]).id, 'screen:0:0', 'The only screen needs no position')
   assert.equal(screenAtPoint([two[0]], { x: 5, y: 5 }), undefined, 'A window is never picked')
+})
+
+test('the Discord nudge waits for the 3rd launch or a save after the first, and never interrupts', () => {
+  const state = (launchCount, extra = {}) => ({ launchCount, seen: false, savedThisSession: false, busy: false, ...extra })
+  assert.equal(shouldShowDiscordNudge(state(0)), false)
+  assert.equal(shouldShowDiscordNudge(state(1)), false, 'Never on the first run')
+  assert.equal(shouldShowDiscordNudge(state(1, { savedThisSession: true })), false, 'Not even after a first-run save')
+  assert.equal(shouldShowDiscordNudge(state(2)), false)
+  assert.equal(shouldShowDiscordNudge(state(3)), true)
+  assert.equal(shouldShowDiscordNudge(state(2, { savedThisSession: true })), true, 'A first save on a later launch')
+  for (const launches of [2, 3, 9]) assert.equal(shouldShowDiscordNudge(state(launches, { savedThisSession: true, busy: true })), false,
+    'Not while recording, counting down or saving')
+  assert.equal(shouldShowDiscordNudge(state(3, { busy: true })), false)
+  assert.equal(shouldShowDiscordNudge(state(3, { busy: false })), true, 'It appears once the app is idle')
+  assert.equal(shouldShowDiscordNudge(state(Number.NaN)), false, 'Unreadable settings fail closed')
+})
+
+test('a displayed Discord nudge never returns, and older settings files gain its fields', () => {
+  const fresh = normalizeSettings({}, defaults)
+  assert.equal(fresh.launchCount, 0)
+  assert.equal(fresh.discordNudgeSeen, false)
+  const shown = normalizeSettings({ ...fresh, launchCount: 3, discordNudgeSeen: true }, defaults)
+  const reloaded = normalizeSettings(JSON.parse(JSON.stringify(shown)), defaults)
+  assert.equal(shouldShowDiscordNudge({ launchCount: reloaded.launchCount, seen: reloaded.discordNudgeSeen, savedThisSession: true, busy: false }), false)
+  assert.equal(normalizeSettings({ launchCount: -4, discordNudgeSeen: 'no' }, defaults).launchCount, 0)
+  assert.equal(normalizeSettings({ launchCount: 2.5, discordNudgeSeen: 'no' }, defaults).discordNudgeSeen, false)
+})
+
+test('only seveneves.ai links may be opened in the browser', () => {
+  assert.ok(isCommunityUrl('https://seveneves.ai/discord/?from=sleekrec-app'))
+  assert.ok(isCommunityUrl('https://seveneves.ai/discord/?from=sleekrec-nudge'))
+  for (const bad of ['https://discord.gg/abc', 'http://seveneves.ai/discord/', 'https://seveneves.ai.evil.com/', 'https://evil.com/?https://seveneves.ai/',
+    'https://seveneves.ai@evil.com/', 'https://user:pw@seveneves.ai/', 'https://seveneves.ai:8443/', 'file:///C:/Windows/System32/calc.exe',
+    'javascript:alert(1)', 'seveneves.ai', '', null, undefined, 7]) assert.ok(!isCommunityUrl(bad), String(bad))
 })
 
 test('stored settings from older versions gain defaults, and invalid hotkeys and sources are refused', () => {
