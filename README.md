@@ -17,7 +17,8 @@ On Windows it captures screens, areas and windows on the GPU, up to 240 fps, and
 [**Download**](https://github.com/sevenevesai/SleekRec/releases/latest) ·
 [Website](https://seveneves.ai/sleekrec/) ·
 [Documentation](#documentation) ·
-[Report a bug](https://github.com/sevenevesai/SleekRec/issues/new)
+[Report a bug](https://github.com/sevenevesai/SleekRec/issues/new) ·
+[Discord](https://seveneves.ai/discord/?from=sleekrec-readme)
 
 </div>
 
@@ -176,7 +177,7 @@ the FFmpeg 6.1 workarounds are in [docs/recording.md](docs/recording.md).
   space falls below that.
 - On Windows, GPU capture stops when SleekRec crashes or is killed, instead of leaving FFmpeg
   writing to the disk.
-- The only network request the app makes is the update check against GitHub Releases.
+- The only network request the app makes is the update check against GitHub Releases. The Discord links in Settings and the one-time card open in your browser, and only when you click them.
 
 ## Known limitations
 
@@ -288,6 +289,8 @@ frame.html      Border around a recorded area
 ```
 
 ## Contributing
+
+Questions and feature requests: [Discord](https://seveneves.ai/discord/?from=sleekrec-readme). Bugs: [open an issue](https://github.com/sevenevesai/SleekRec/issues/new).
 
 Report bugs and request features in [Issues](https://github.com/sevenevesai/SleekRec/issues).
 For a recording problem, attach the `.json` file saved beside the recording: it names the engine,
